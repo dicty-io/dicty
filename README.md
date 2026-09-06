@@ -1,3 +1,8 @@
+<p align="center">
+  <img src="dicty-icon.png" alt="Dicty Logo" width="110" height="110" />
+</p>
+
+
 <h1 align="center">Dicty</h1>
 
 <p align="center">
