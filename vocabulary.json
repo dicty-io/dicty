@@ -1,0 +1,32 @@
+[
+  {
+    "word": "Velero",
+    "replacement": "",
+    "id": "5b9fb82f-1643-4cbc-886d-e54609cfb542"
+  },
+  {
+    "word": "kubernetes",
+    "replacement": "",
+    "id": "028a1238-cb7e-43a6-8958-8b08cbb3d14a"
+  },
+  {
+    "word": "k8s",
+    "replacement": "",
+    "id": "7d794ec7-5afc-44ba-861a-21a1c5b057fb"
+  },
+  {
+    "word": "kludge",
+    "replacement": "klutch",
+    "id": "9c7ae567-4458-4f68-9f7e-9e7b30436d9a"
+  },
+  {
+    "word": "klutch",
+    "replacement": "",
+    "id": "8e8e7e41-e98d-4b1b-9632-bcb1bd6fc1b2"
+  },
+  {
+    "word": "ArgoCD",
+    "replacement": "",
+    "id": "92c25c42-2b82-4e89-bbf0-0d9c94835bff"
+  }
+]

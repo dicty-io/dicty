@@ -1,0 +1,78 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config-schema/schema.json",
+  "productName": "Dicty",
+  "version": "1.0.46",
+  "identifier": "com.dicty.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Dicty",
+        "url": "index.html",
+        "width": 1080,
+        "height": 720,
+        "minWidth": 800,
+        "minHeight": 550,
+        "decorations": true,
+        "transparent": false,
+        "center": true,
+        "visible": true
+      },
+      {
+        "label": "overlay",
+        "title": "Dicty Overlay",
+        "url": "index.html?window=overlay",
+        "width": 430,
+        "height": 136,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "center": true,
+        "visible": false
+      },
+      {
+        "label": "mode_switcher",
+        "title": "Dicty Modes",
+        "url": "index.html?window=mode_switcher",
+        "width": 340,
+        "height": 380,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "center": true,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "resources": [
+      "resources/dicty_engine/**/*"
+    ],
+    "windows": {
+      "nsis": {
+        "installerHooks": "nsis-hooks.nsh"
+      }
+    }
+  }
+}

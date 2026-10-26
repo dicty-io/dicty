@@ -1,0 +1,70 @@
+{
+  "app": "Dicty",
+  "version": "1.0.0",
+  "exported_at": "2026-10-24T09:30:00Z",
+  "vocabulary": [
+    {
+      "id": "v1",
+      "word": "dicty",
+      "replacement": "Dicty"
+    }
+  ],
+  "prompts": [
+    {
+      "key": "dictation_email_system",
+      "value": "Convert this voice dictation into a clean, natural email.\n\nInstructions:\n1. Subject line: Write a natural, direct subject line matching the topic (e.g. 'Short call today'). Never invent 'Urgent:' or alarmist labels.\n2. Greeting: If the speaker did not mention a specific person's name, begin with 'Hi there,' or 'Hi,'. Never use brackets or placeholders like [Name] or [Friend's Name].\n3. Message body: Clean up speech disfluencies and duplicate phrasing. Keep the tone natural, genuine, and friendly. Do not add artificial corporate boilerplate to casual requests.\n4. Sign-off: Conclude naturally.",
+      "active_value": "Convert this voice dictation into a clean, natural email.\n\nInstructions:\n1. Subject line: Write a natural, direct subject line matching the topic (e.g. 'Short call today'). Never invent 'Urgent:' or alarmist labels.\n2. Greeting: If the speaker did not mention a specific person's name, begin with 'Hi there,' or 'Hi,'. Never use brackets or placeholders like [Name] or [Friend's Name].\n3. Message body: Clean up speech disfluencies and duplicate phrasing. Keep the tone natural, genuine, and friendly. Do not add artificial corporate boilerplate to casual requests.\n4. Sign-off: Conclude naturally.",
+      "default_value": "Transform this dictation into a properly formatted professional email.",
+      "is_custom": true
+    },
+    {
+      "key": "dictation_message_system",
+      "value": "Format this dictation as a clear, concise chat message. Fix grammar and punctuation, but maintain the speaker's original, natural conversational tone. IMPORTANT: Do not use flowery language, robotic AI-speak, or overly formal vocabulary. Sound like a real human typing a message. Output ONLY the message text without extra formatting or markdown code blocks. ",
+      "active_value": "Format this dictation as a clear, concise chat message. Fix grammar and punctuation, but maintain the speaker's original, natural conversational tone. IMPORTANT: Do not use flowery language, robotic AI-speak, or overly formal vocabulary. Sound like a real human typing a message. Output ONLY the message text without extra formatting or markdown code blocks. ",
+      "default_value": "Format this dictation as a clear, concise chat message.",
+      "is_custom": true
+    },
+    {
+      "key": "dictation_note_system",
+      "value": "Organize this dictation into structured notes using markdown.",
+      "active_value": "Organize this dictation into structured notes using markdown.",
+      "default_value": "Organize this dictation into structured notes using markdown.",
+      "is_custom": false
+    }
+  ],
+  "activeMode": "dictation",
+  "dictationFormatStyle": "raw",
+  "dictationLLMModel": "qwen2.5-1.5b-instruct-q4_k_m",
+  "hotkeyKeyCode": 49,
+  "hotkeyModifiers": 2304,
+  "hotkeyBehavior": "hold",
+  "autoPaste": true,
+  "restoreClipboardAfterPaste": true,
+  "isIncognitoMode": false,
+  "transcriptionLanguage": "auto",
+  "keepModelInMemory": true,
+  "favoriteModelsString": "large-v3-turbo,small.en",
+  "appTheme": "Auto",
+  "appAccentColor": "slate",
+  "showInDock": true,
+  "hasSeenOnboarding": true,
+  "localStorageBackup": {
+    "active_mode": "dictation",
+    "dictation_format_style": "raw",
+    "favorite_models": "large-v3-turbo,small.en"
+  },
+  "llmProvider": "local",
+  "llmModel": "qwen2.5-1.5b-instruct-q4_k_m",
+  "targetSystem": "obsidian",
+  "obsidianPath": "",
+  "gitProvider": "github",
+  "selectedGitHubRepo": "",
+  "translationMethod": "cloud",
+  "targetLanguage": "de",
+  "translateToEnglish": false,
+  "enableSelfCorrection": true,
+  "selfCorrectionModel": "custom:",
+  "llmApiKey": "sk-or-v1-secret-value",
+  "openaiApiKey": "sk-secret-value",
+  "githubToken": "ghp_secret"
+}

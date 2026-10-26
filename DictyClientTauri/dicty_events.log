@@ -1,0 +1,5 @@
+[EVENT] Ready
+[EVENT] WindowEvent { label: "overlay", event: Focused(true) }
+[EVENT] WindowEvent { label: "overlay", event: Focused(false) }
+[EVENT] WindowEvent { label: "settings", event: Focused(true) }
+[EVENT] MainEventsCleared

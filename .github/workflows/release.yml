@@ -1,0 +1,402 @@
+name: Release Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: 'Version bump level'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - custom
+        default: patch
+      custom_version:
+        description: 'Custom version (required only if bump_type is "custom", e.g. 1.2.0)'
+        required: false
+        type: string
+        default: ''
+      release_notes_hint:
+        description: 'Optional focus/highlights for release description (e.g. "Meeting mode mute control and stability fixes")'
+        required: false
+        type: string
+        default: ''
+      build_windows:
+        description: 'Build Windows app installer'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write         # create releases/tags
+  pull-requests: read     # read commit & PR metadata
+  actions: write          # runner caching
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: [self-hosted, macOS]
+    env:
+      RUNNER_TOOL_CACHE: /tmp/hostedtoolcache
+      AGENT_TOOLSDIRECTORY: /tmp/hostedtoolcache
+    outputs:
+      next_tag: ${{ steps.compute.outputs.next_tag }}
+      build_windows: ${{ steps.compute.outputs.build_windows }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate AI Release Notes
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'qwen/qwen3.7-plus' }}
+          RELEASE_HIGHLIGHTS: ${{ github.event.inputs.release_notes_hint }}
+        run: |
+          python3 .github/scripts/generate_release_notes.py
+
+      - name: Compute next version & create release
+        id: compute
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo  = context.repo.repo;
+
+            const bumpType = (context.payload.inputs?.bump_type || 'patch').trim().toLowerCase();
+            const customVersionInput = (context.payload.inputs?.custom_version || '').trim();
+            const buildWindows = context.payload.inputs?.build_windows === true || context.payload.inputs?.build_windows === 'true';
+
+            core.info(`Manual release triggered by @${context.actor}: bump_type=${bumpType}, custom_version=${customVersionInput}, build_windows=${buildWindows}`);
+            core.setOutput('build_windows', buildWindows ? 'true' : 'false');
+
+            // Get latest release tag
+            let latestTag;
+            try {
+              const latest = await github.rest.repos.getLatestRelease({ owner, repo });
+              latestTag = latest.data.tag_name;
+            } catch {
+              // Baseline if repository has no releases yet
+              latestTag = process.env.BASELINE_TAG || '1.0.71';
+            }
+
+            // Normalize
+            if (latestTag.startsWith('v')) latestTag = latestTag.slice(1);
+
+            const m = latestTag.match(/^(\d+)\.(\d+)\.(\d+)(?:-(\d+))?$/);
+            if (!m) {
+              core.setFailed(`Latest tag "${latestTag}" not in standard semver format (X.Y.Z)`);
+              return;
+            }
+            let major = parseInt(m[1], 10);
+            let minor = parseInt(m[2], 10);
+            let patch = parseInt(m[3], 10);
+
+            let nextTag;
+            if (bumpType === 'custom') {
+              let cleaned = customVersionInput.replace(/^v/, '').trim();
+              if (!/^\d+\.\d+\.\d+$/.test(cleaned)) {
+                core.setFailed(`Invalid custom version "${customVersionInput}". Expected format: X.Y.Z (e.g. 1.2.0)`);
+                return;
+              }
+              nextTag = cleaned;
+            } else if (bumpType === 'major') {
+              major += 1;
+              minor = 0;
+              patch = 0;
+              nextTag = `${major}.${minor}.${patch}`;
+            } else if (bumpType === 'minor') {
+              minor += 1;
+              patch = 0;
+              nextTag = `${major}.${minor}.${patch}`;
+            } else {
+              // Default: patch
+              patch += 1;
+              nextTag = `${major}.${minor}.${patch}`;
+            }
+
+            let notes = '';
+            try {
+              notes = require('fs').readFileSync('RELEASE_NOTES.md', 'utf8');
+            } catch(e) {
+              notes = `### Release v${nextTag}\n\nManual release triggered by @${context.actor}.`;
+            }
+
+            const tagName = `v${nextTag}`;
+            core.info(`Calculated release version: ${latestTag} -> ${nextTag}`);
+
+            // Create the release at current commit SHA
+            await github.rest.repos.createRelease({
+              owner, repo,
+              tag_name: tagName,
+              name: tagName,
+              body: notes,
+              draft: false,
+              prerelease: false,
+              target_commitish: context.sha
+            });
+
+            core.setOutput('next_tag', nextTag);
+
+            // Save notes to a file so mirroring step can use it
+            require('fs').writeFileSync('release_notes.txt', notes);
+
+      - name: Mirror release to public organization repository
+        env:
+          GITHUB_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+        run: |
+          gh release create v${{ steps.compute.outputs.next_tag }} \
+            --repo dicty-io/dicty \
+            --title "v${{ steps.compute.outputs.next_tag }}" \
+            --notes-file release_notes.txt
+
+      - name: Summary
+        run: echo "Created release v${{ steps.compute.outputs.next_tag }} on private repo and mirrored to dicty-io/dicty!"
+
+  build_mac:
+    needs: release
+    runs-on: [self-hosted, macOS]
+    env:
+      RUNNER_TOOL_CACHE: /tmp/hostedtoolcache
+      AGENT_TOOLSDIRECTORY: /tmp/hostedtoolcache
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Persistent Python Environment & Dependencies
+        run: |
+          chmod +x scripts/setup_runner_env.sh
+          ./scripts/setup_runner_env.sh
+
+
+
+      - name: Build DMG
+        env:
+          DICTY_VERSION: ${{ needs.release.outputs.next_tag }}
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          # Developer ID signing + notarization (leave unset to build a locally-signed DMG)
+          DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          sudo -n xcodebuild -license accept 2>/dev/null || true
+          if [ -z "$DEVELOPER_DIR" ] || [ "$DEVELOPER_DIR" = "/Library/Developer/CommandLineTools" ]; then
+            if [ -d "/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk" ]; then
+              export SDKROOT="/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk"
+            elif [ -d "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk" ]; then
+              export SDKROOT="/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk"
+            fi
+          fi
+          ./make_dmg.sh
+
+      - name: Compute Checksum and Upload DMG to Public Organization Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+        run: |
+          shasum -a 256 dist/Dicty.dmg > dist/Dicty.dmg.sha256
+          echo "[+] Generated dist/Dicty.dmg.sha256:"
+          cat dist/Dicty.dmg.sha256
+
+          MAX_RETRIES=5
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "[*] Uploading dist/Dicty.dmg and checksum to dicty-io/dicty (attempt $i/$MAX_RETRIES)..."
+            if gh release upload "v${{ needs.release.outputs.next_tag }}" dist/Dicty.dmg dist/Dicty.dmg.sha256 --repo dicty-io/dicty --clobber; then
+              echo "[+] Successfully uploaded Dicty.dmg and Dicty.dmg.sha256 to GitHub Release!"
+              break
+            fi
+            if [ $i -eq $MAX_RETRIES ]; then
+              echo "[-] Failed to upload release assets after $MAX_RETRIES attempts."
+              exit 1
+            fi
+            echo "[!] Upload failed. Waiting 10s before retry..."
+            sleep 10
+          done
+
+      - name: Bump Homebrew Cask in dicty-io/homebrew-dicty
+        continue-on-error: true
+        env:
+          TAP_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+          VERSION: ${{ needs.release.outputs.next_tag }}
+        run: |
+          if [ -z "${TAP_TOKEN}" ]; then
+            echo "[!] PUBLIC_REPO_TOKEN is empty or not configured. Skipping Homebrew Cask bump."
+            exit 0
+          fi
+
+          export SHA256=$(shasum -a 256 dist/Dicty.dmg | awk '{print $1}')
+          echo "Bumping Homebrew Cask to version ${VERSION} with SHA256: ${SHA256}"
+
+          # Clone tap repository with retry mechanism
+          rm -rf tap_repo
+          CLONE_SUCCESS=false
+          MAX_RETRIES=5
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "[*] Cloning dicty-io/homebrew-dicty (attempt $i/$MAX_RETRIES)..."
+            if git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/dicty-io/homebrew-dicty.git" tap_repo; then
+              CLONE_SUCCESS=true
+              echo "[+] Successfully cloned homebrew-dicty!"
+              break
+            fi
+            echo "[!] Clone failed. Waiting 10s before retry..."
+            sleep 10
+          done
+
+          if [ "$CLONE_SUCCESS" != "true" ]; then
+            echo "[-] Failed to clone homebrew-dicty after $MAX_RETRIES attempts."
+            exit 1
+          fi
+
+          mkdir -p tap_repo/Casks
+
+          # Copy and update Cask definition
+          cp Casks/dicty.rb tap_repo/Casks/dicty.rb
+          python3 -c "
+          import os, re
+          v = os.environ['VERSION']
+          s = os.environ['SHA256']
+          with open('tap_repo/Casks/dicty.rb', 'r') as f:
+              content = f.read()
+          content = re.sub(r'version \".*\"', f'version \"{v}\"', content)
+          content = re.sub(r'sha256 \".*\"', f'sha256 \"{s}\"', content)
+          with open('tap_repo/Casks/dicty.rb', 'w') as f:
+              f.write(content)
+          "
+
+          cd tap_repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/dicty.rb
+          if git diff --staged --quiet; then
+            echo "Cask is already up to date."
+          else
+            git commit -m "Bump dicty cask to v${VERSION}"
+            PUSH_SUCCESS=false
+            for i in $(seq 1 $MAX_RETRIES); do
+              echo "[*] Pushing updated cask (attempt $i/$MAX_RETRIES)..."
+              if git push origin HEAD; then
+                PUSH_SUCCESS=true
+                echo "[+] Successfully pushed updated cask to dicty-io/homebrew-dicty!"
+                break
+              fi
+              echo "[!] Push failed. Waiting 10s before retry..."
+              sleep 10
+            done
+            if [ "$PUSH_SUCCESS" != "true" ]; then
+              echo "[-] Failed to push updated cask after $MAX_RETRIES attempts."
+              exit 1
+            fi
+          fi
+          cd ..
+          rm -rf tap_repo
+
+  build_windows:
+    needs: release
+    if: needs.release.outputs.build_windows == 'true'
+    timeout-minutes: 45
+    runs-on: [self-hosted, Windows]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Local Runner Cache Environment
+        shell: powershell
+        run: |
+          if ($env:RUNNER_WORKSPACE) {
+            $runnerRoot = (Get-Item $env:RUNNER_WORKSPACE).Parent.Parent.FullName
+            $cacheDir = Join-Path $runnerRoot "_cache"
+          } elseif (Test-Path "$env:USERPROFILE\actions-runner") {
+            $cacheDir = "$env:USERPROFILE\actions-runner\_cache"
+          } else {
+            $cacheDir = "$env:USERPROFILE\.dicty_cache"
+          }
+          New-Item -ItemType Directory -Path "$cacheDir\pip", "$cacheDir\cargo_target", "$cacheDir\whisper" -Force | Out-Null
+          Write-Host "Configured Runner Cache Directory: $cacheDir"
+          "RUNNER_CACHE_DIR=$cacheDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PIP_CACHE_DIR=$cacheDir\pip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "CARGO_TARGET_DIR=$cacheDir\cargo_target" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'DictyClientTauri/package-lock.json'
+
+      - name: Verify Rust Toolchain
+        run: |
+          rustc --version
+          cargo --version
+
+      - name: Set up Python Virtual Environment
+        run: |
+          if (-not (Test-Path ".venv")) {
+            python -m venv .venv
+          }
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\pip install -r requirements-windows.txt
+
+      - name: Package Windows Backend (PyInstaller)
+        run: |
+          call scripts\windows\build_win.bat
+        shell: cmd
+
+      - name: Install Frontend Dependencies
+        run: |
+          cd DictyClientTauri
+          npm ci
+
+      - name: Configure Release Version in Tauri and Frontend
+        env:
+          VERSION: ${{ needs.release.outputs.next_tag }}
+        run: |
+          python scripts/update_version.py
+
+      - name: Build Windows Tauri Installer (NSIS .exe)
+        shell: powershell
+        run: |
+          $targetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { "DictyClientTauri\src-tauri\target" }
+          Remove-Item -Path "$targetDir\release\bundle" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path "DictyClientTauri\src-tauri\target\release\bundle" -Recurse -Force -ErrorAction SilentlyContinue
+          cd DictyClientTauri
+          npm run tauri build
+
+      - name: Compute Checksum and Upload Windows Installer to Public Organization Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+        run: |
+          if (-not $env:GITHUB_TOKEN) {
+            Write-Host "PUBLIC_REPO_TOKEN not provided, skipping upload to public repo."
+            exit 0
+          }
+          $tag = "v${{ needs.release.outputs.next_tag }}"
+          $targetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { "DictyClientTauri\src-tauri\target" }
+          $files = Get-ChildItem -Path "$targetDir\release\bundle\nsis\*.exe", "DictyClientTauri\src-tauri\target\release\bundle\nsis\*.exe" -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*${{ needs.release.outputs.next_tag }}*" }
+          if (-not $files) {
+            $files = Get-ChildItem -Path "$targetDir\release\bundle\nsis\*.exe", "DictyClientTauri\src-tauri\target\release\bundle\nsis\*.exe" -ErrorAction SilentlyContinue
+          }
+          foreach ($f in $files) {
+            $sha256 = (Get-FileHash -Path $f.FullName -Algorithm SHA256).Hash.ToLower()
+            $shaFile = "$($f.FullName).sha256"
+            "$sha256  $($f.Name)" | Out-File -FilePath $shaFile -Encoding ascii
+            Write-Host "Generated SHA256 for $($f.Name): $sha256"
+            Write-Host "Uploading $($f.Name) and $($f.Name).sha256 to $tag on dicty-io/dicty..."
+            gh release upload $tag $f.FullName $shaFile --repo dicty-io/dicty --clobber
+          }
+

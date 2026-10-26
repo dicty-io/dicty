@@ -1,0 +1,30 @@
+services:
+  web:
+    build: .
+    ports:
+      - "8081:8081"
+    volumes:
+      - ${OBSIDIAN_VAULT_PATH:-./scratch}:${OBSIDIAN_VAULT_PATH:-/app/scratch}
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    develop:
+      watch:
+        - action: sync
+          path: .
+          target: /app
+          ignore:
+            - .venv/
+            - .git/
+            - .kilo/
+            - DictyClient/
+            - DictyClientTauri/
+            - build/
+            - dist/
+            - whisper.cpp/
+            - models/
+            - transcripts_input/
+            - bin/
+            - __pycache__/
+            - .pytest_cache/

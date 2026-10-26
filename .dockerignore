@@ -1,0 +1,41 @@
+# Git & IDE
+.git
+.github
+.gitignore
+.kilo
+.agents
+.vscode
+.idea
+
+# Local virtualenvs & caches
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+
+# Heavy local models, audio & macOS build artifacts (7+ GB)
+models/
+transcripts_input/
+DictyClient/
+DictyClientTauri/
+dist/
+build/
+whisper.cpp/
+bin/
+compat_libs/
+*.dmg
+*.app
+*.pkg
+*.spec
+
+# Local state & secrets
+.env
+history.json
+updates_history.json
+pending_updates.json
+settings.json
+telemetry_config.json
+certificates/
+docs/
+tests/

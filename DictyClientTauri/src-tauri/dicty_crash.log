@@ -1,0 +1,1 @@
+CRASH: PanicHookInfo { payload: Any { .. }, location: Location { file: "C:\\Users\\vasya\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\tauri-2.11.5\\src\\lib.rs", line: 734, column: 7 }, can_unwind: true, force_no_backtrace: false }
