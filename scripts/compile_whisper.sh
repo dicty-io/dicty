@@ -79,14 +79,28 @@ COMMON_FLAGS=(
     -DCMAKE_CXX_FLAGS="-Wno-tautological-compare -Wno-unused-function"
 )
 
-# Detect architecture to apply correct optimizations
-ARCH=$(uname -m)
-if [ "$ARCH" = "arm64" ]; then
+# Detect hardware architecture (handle Rosetta processes running as x86_64 on Apple Silicon)
+IS_ARM64=0
+if [ "$(uname -m)" = "arm64" ] || [ "$(sysctl -in hw.optional.arm64 2>/dev/null)" = "1" ]; then
+    IS_ARM64=1
+fi
+
+if [ "$IS_ARM64" = "1" ]; then
     echo "[*] Apple Silicon (ARM64) detected. Enabling Metal GPU and Accelerate."
-    "$CMAKE_BIN" -B build -DGGML_METAL=1 -DWHISPER_ACCELERATE=1 "${COMMON_FLAGS[@]}"
+    "$CMAKE_BIN" -B build \
+        -DCMAKE_OSX_ARCHITECTURES="arm64" \
+        -DGGML_METAL=1 \
+        -DWHISPER_ACCELERATE=1 \
+        -DGGML_NATIVE=OFF \
+        "${COMMON_FLAGS[@]}"
 else
     echo "[*] Intel (x86_64) detected. Enabling Apple Accelerate (BLAS) for maximum CPU performance."
-    "$CMAKE_BIN" -B build -DWHISPER_ACCELERATE=1 -DGGML_BLAS=1 "${COMMON_FLAGS[@]}"
+    "$CMAKE_BIN" -B build \
+        -DCMAKE_OSX_ARCHITECTURES="x86_64" \
+        -DWHISPER_ACCELERATE=1 \
+        -DGGML_BLAS=1 \
+        -DGGML_NATIVE=OFF \
+        "${COMMON_FLAGS[@]}"
 fi
 
 echo "[*] Building targets (whisper-cli, whisper-server) with $NPROC cores..."
