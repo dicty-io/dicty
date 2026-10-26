@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/vkazmin1/dicty/releases/latest"><img src="https://img.shields.io/badge/release-v1.0.88-5D6658" alt="Latest Release: v1.0.88"></a>
+  <a href="https://github.com/dicty-io/dicty/releases/latest"><img src="https://img.shields.io/badge/release-v1.0.88-5D6658" alt="Latest Release: v1.0.88"></a>
   <img src="https://img.shields.io/badge/platform-macOS%2014.0%2B%20%7C%20Windows-lightgrey" alt="Platforms">
   <img src="https://img.shields.io/badge/Apple%20Silicon-Metal%20GPU-success" alt="Metal GPU">
   <img src="https://img.shields.io/badge/privacy-100%25%20Offline%20Available-brightgreen" alt="100% Offline">
@@ -53,7 +53,7 @@ Whether authoring comments in Cursor, answering Slack messages, drafting documen
 ### macOS
 
 #### 1. Download DMG
-1. Download the latest **[Dicty.dmg](https://github.com/vkazmin1/dicty/releases/latest)** from GitHub Releases.
+1. Download the latest **[Dicty.dmg](https://github.com/dicty-io/dicty/releases/latest)** from GitHub Releases.
 2. Open the disk image and drag **Dicty.app** into `/Applications`.
 3. Launch Dicty from Applications or Spotlight.
 
@@ -80,7 +80,7 @@ shasum -a 256 -c Dicty.dmg.sha256
 ### Windows
 
 #### 1. Standalone Installer
-1. Download the latest **`Dicty_<version>_x64-setup.exe`** from **[Releases](https://github.com/vkazmin1/dicty/releases/latest)**.
+1. Download the latest **`Dicty_<version>_x64-setup.exe`** from **[Releases](https://github.com/dicty-io/dicty/releases/latest)**.
 2. Run the installer. It installs Dicty to `%LOCALAPPDATA%\Programs\Dicty`.
 3. Launch Dicty from the Start Menu or Desktop shortcut.
 

@@ -31,7 +31,7 @@ Dicty operates as three coordinated local processes:
 ### Quick Start
 ```bash
 # 1. Clone repository
-git clone https://github.com/vkazmin1/dicty.git
+git clone https://github.com/dicty-io/dicty.git
 cd dicty
 
 # 2. Setup Python environment
