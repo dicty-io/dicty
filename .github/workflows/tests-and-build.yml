@@ -43,6 +43,14 @@ jobs:
           chmod +x scripts/run_tests.sh
           ./scripts/run_tests.sh
 
+      - name: Upload Coverage Reports to Codecov
+        uses: codecov/codecov-action@v5
+        continue-on-error: true
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          fail_ci_if_error: false
+
       - name: Verify Swift Release Build
         run: |
           sudo -n xcodebuild -license accept 2>/dev/null || true
