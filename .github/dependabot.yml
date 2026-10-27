@@ -1,0 +1,41 @@
+version: 2
+updates:
+  # 1. GitHub Actions Workflows (keeps checkout, setup-python, etc. updated)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  # 2. Python Backend Dependencies (requirements.txt)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"
+
+  # 3. macOS Swift Client Dependencies (DictyClient/Package.swift)
+  - package-ecosystem: "swift"
+    directory: "/DictyClient"
+    schedule:
+      interval: "weekly"
+    groups:
+      swift-dependencies:
+        patterns:
+          - "*"
+
+  # 4. Windows Tauri Frontend Dependencies (DictyClientTauri/package.json)
+  - package-ecosystem: "npm"
+    directory: "/DictyClientTauri"
+    schedule:
+      interval: "weekly"
+    groups:
+      npm-dependencies:
+        patterns:
+          - "*"
