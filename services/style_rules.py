@@ -121,21 +121,28 @@ _LEADING_MARKERS_RE = re.compile(
 
 _SPOKEN_PUNCTUATION = (
     # Longest phrases first so "точка с запятой" is not eaten by "точка".
+    (re.compile(r"\b(?:новое\s+предложение|new\s+sentence|neuer\s+satz)\b", re.IGNORECASE), ". "),
     (re.compile(r"\b(?:точка\s+с\s+запятой|semicolon|semikolon)\b", re.IGNORECASE), ";"),
     (re.compile(r"\b(?:новый\s+абзац|new\s+paragraph|neuer\s+absatz)\b", re.IGNORECASE), "\n\n"),
     (re.compile(r"\b(?:новая\s+строка|new\s+line|neue\s+zeile)\b", re.IGNORECASE), "\n"),
     (re.compile(r"\b(?:вопросительный\s+знак|знак\s+вопроса|question\s+mark|fragezeichen)\b", re.IGNORECASE), "?"),
     (re.compile(r"\b(?:восклицательный\s+знак|знак\s+восклицания|exclamation\s+(?:mark|point)|ausrufezeichen)\b", re.IGNORECASE), "!"),
     (re.compile(r"\b(?:двоеточие|colon|doppelpunkt)\b", re.IGNORECASE), ":"),
+    (re.compile(r"\b(?:тире|em\s*dash|gedankenstrich)\b", re.IGNORECASE), " — "),
     (re.compile(r"\b(?:запятая|comma|komma)\b", re.IGNORECASE), ","),
-    (re.compile(r"\b(?:точка|period|full\s+stop|punkt)\b", re.IGNORECASE), "."),
+    (re.compile(r"\b(?:точк[ау]|точка|period|full\s+stop|punkt)\b", re.IGNORECASE), "."),
     (re.compile(r"\b(?:многоточие|ellipsis)\b", re.IGNORECASE), "…"),
+    (re.compile(r"\b(?:открыть\s+кавычки|открываются\s+кавычки|open\s+quotes?|anführungszeichen\s+unten)\b", re.IGNORECASE), "«"),
+    (re.compile(r"\b(?:закрыть\s+кавычки|закрываются\s+кавычки|close\s+quotes?|anführungszeichen\s+oben)\b", re.IGNORECASE), "»"),
+    (re.compile(r"\b(?:в\s+кавычках|quotes?)\b", re.IGNORECASE), '"'),
 )
 
 _I_CONTRACTION_RE = re.compile(r"\bi(['’])(m|ve|ll|d)\b", re.IGNORECASE)
 
 
 def _apply_spoken_punctuation(text: str) -> str:
+    # Hyphen joins surrounding words directly without spaces ("art hyphen design" -> "art-design")
+    text = re.sub(r"\s*\b(?:дефис|hyphen|bindestrich)\b\s*", "-", text, flags=re.IGNORECASE)
     for pattern, replacement in _SPOKEN_PUNCTUATION:
         # A spoken mark attaches to the word before it.
         text = pattern.sub(replacement, text)
@@ -179,11 +186,13 @@ def _normalize_code_whitespace(text: str) -> str:
 
 def _normalize_punctuation(text: str) -> str:
     # No space before punctuation.
-    text = re.sub(r"[ \t]+([,.;:!?…])", r"\1", text)
+    text = re.sub(r"[ \t]+([,.;:!?…»])", r"\1", text)
+    # No space after opening quotes.
+    text = re.sub(r"([«])\s+", r"\1", text)
     # One space after punctuation, except before digits (3.5), newlines and
     # another punctuation mark. A period only gets a space when it follows a
     # lowercase letter and is followed by an uppercase one ("end.Next").
-    text = re.sub(r"([,;:!?…])(?=[^\s\d,.;:!?…])", r"\1 ", text)
+    text = re.sub(r"([,;:!?…»])(?=[^\s\d,.;:!?…»])", r"\1 ", text)
     text = re.sub(r"(?<=[a-zа-яё])\.(?=[A-ZА-ЯЁ])", ". ", text)
     # Collapse duplicated punctuation produced by a filler removal.
     text = re.sub(r",\s*,+", ",", text)
@@ -228,7 +237,7 @@ def _ensure_final_period(text: str) -> str:
     if not stripped:
         return stripped
     last = stripped[-1]
-    if last.isalnum() or last in '"\')]}':
+    if last.isalnum() or last in '"\')]}»':
         stripped += "."
     return stripped
 
