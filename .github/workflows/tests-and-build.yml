@@ -12,6 +12,9 @@ on:
       - '**.md'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: tests-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
@@ -30,7 +33,7 @@ jobs:
       AGENT_TOOLSDIRECTORY: /tmp/hostedtoolcache
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Persistent Python Environment & Dependencies
         run: |
@@ -42,6 +45,14 @@ jobs:
           sudo -n xcodebuild -license accept 2>/dev/null || true
           chmod +x scripts/run_tests.sh
           ./scripts/run_tests.sh
+
+      - name: Upload Coverage Reports to Codecov
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
+        continue-on-error: true
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          fail_ci_if_error: false
 
       - name: Verify Swift Release Build
         run: |
@@ -70,14 +81,18 @@ jobs:
             fi
           fi
           cd DictyClient
+          SWIFT_CMD="swift"
+          if [ "$(sysctl -in hw.optional.arm64 2>/dev/null)" = "1" ]; then
+              SWIFT_CMD="arch -arm64 swift"
+          fi
           BUILD_STATUS=0
-          swift build -c release || BUILD_STATUS=$?
+          $SWIFT_CMD build -c release || BUILD_STATUS=$?
           if [ $BUILD_STATUS -eq 69 ]; then
             echo "[!] NOTICE: Xcode license not accepted on runner (exit code 69). Skipping Swift release build verification."
           elif [ $BUILD_STATUS -ne 0 ]; then
             echo "[!] Swift release build failed with cached build graph. Cleaning .build and retrying..."
             rm -rf .build
-            swift build -c release
+            $SWIFT_CMD build -c release
           fi
 
       - name: Validate App Bundle Packaging & Codesign Sealing
