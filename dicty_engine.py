@@ -2845,9 +2845,15 @@ async def process_transcription(
 
             return '\n\n'.join(cleaned_lines)
             
-        if dictation_format_style == "punctuation_fast":
-            print("[+] Applying Fast Punctuation & Rule-Based parsing (0ms)...")
+        if dictation_format_style in ("punctuation_fast", "clean"):
+            print(f"[+] Applying Fast Punctuation & Rule-Based parsing for '{dictation_format_style}' (0ms)...")
             raw_text = parse_spoken_punctuation(raw_text)
+            if dictation_format_style == "clean":
+                try:
+                    import style_rules
+                    raw_text = style_rules.apply_style(raw_text, "clean")
+                except Exception as clean_err:
+                    print(f"[!] Clean style rule failed: {clean_err}")
             llm_ms = (time.perf_counter() - t_fmt_start) * 1000.0
         else:
             # Pre-pass spoken punctuation parsing for book and other modes
@@ -3054,6 +3060,17 @@ async def process_transcription(
                         if "<think>" in formatted_text:
                             import re
                             formatted_text = re.sub(r"(?s)<think>.*?</think>", "", formatted_text).strip()
+
+                        # Strip stray wrapping triple-quotes, markdown fences, or outer quotes defensively
+                        if formatted_text.startswith('"""') and formatted_text.endswith('"""') and len(formatted_text) >= 6:
+                            formatted_text = formatted_text[3:-3].strip()
+                        elif formatted_text.startswith("'''") and formatted_text.endswith("'''") and len(formatted_text) >= 6:
+                            formatted_text = formatted_text[3:-3].strip()
+                        elif formatted_text.startswith("```") and formatted_text.endswith("```") and len(formatted_text) >= 6:
+                            import re
+                            formatted_text = re.sub(r"^```[a-zA-Z0-9_-]*\n?(.*?)\n?```$", r"\1", formatted_text, flags=re.DOTALL).strip()
+                        if len(formatted_text) >= 2 and formatted_text[0] == formatted_text[-1] and formatted_text[0] in ('"', "'", "“", "”", "\u201c", "\u201d"):
+                            formatted_text = formatted_text[1:-1].strip()
                             
                         if formatted_text:
                             import re
