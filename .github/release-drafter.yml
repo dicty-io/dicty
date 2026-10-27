@@ -1,0 +1,50 @@
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+change-template: '- $TITLE (@$AUTHOR) in #$NUMBER'
+change-title-escapes: '\<*_&'
+version-resolver:
+  major:
+    labels:
+      - 'major'
+      - 'breaking-change'
+  minor:
+    labels:
+      - 'minor'
+      - 'enhancement'
+      - 'feature'
+  patch:
+    labels:
+      - 'patch'
+      - 'fix'
+      - 'bug'
+      - 'dependencies'
+  default: patch
+
+categories:
+  - title: 'Features & Enhancements'
+    labels:
+      - 'feature'
+      - 'enhancement'
+  - title: 'Bug Fixes & Stability'
+    labels:
+      - 'fix'
+      - 'bug'
+  - title: 'Performance & Audio Pipeline'
+    labels:
+      - 'performance'
+      - 'latency'
+  - title: 'Dependency Updates'
+    labels:
+      - 'dependencies'
+  - title: 'Maintenance & Documentation'
+    labels:
+      - 'chore'
+      - 'documentation'
+      - 'ci'
+
+template: |
+  ## What's Changed
+
+  $CHANGES
+
+  **Full Changelog**: https://github.com/dicty-io/dicty/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
