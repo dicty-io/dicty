@@ -74,8 +74,13 @@ if command -v swift &> /dev/null; then
     fi
 
     cd "$PROJECT_DIR/DictyClient"
+    SWIFT_CMD="swift"
+    if [ "$(sysctl -in hw.optional.arm64 2>/dev/null)" = "1" ]; then
+        SWIFT_CMD="arch -arm64 swift"
+    fi
+
     SWIFT_STATUS=0
-    swift test || SWIFT_STATUS=$?
+    $SWIFT_CMD test || SWIFT_STATUS=$?
     if [ $SWIFT_STATUS -eq 69 ]; then
         echo "=================================================================="
         echo " ⚠️  NOTICE: Xcode license not accepted on this runner (Exit Code 69)."
@@ -86,7 +91,7 @@ if command -v swift &> /dev/null; then
     elif [ $SWIFT_STATUS -ne 0 ]; then
         echo "[!] Swift test failed with cached build graph. Cleaning .build cache and retrying from scratch..."
         rm -rf .build
-        swift test
+        $SWIFT_CMD test
     fi
     cd "$PROJECT_DIR"
 

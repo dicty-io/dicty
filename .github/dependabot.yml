@@ -1,6 +1,6 @@
 version: 2
 updates:
-  # 1. GitHub Actions Workflows (keeps checkout, setup-python, etc. updated)
+  # 1. GitHub Actions Workflows (Keep CI/CD actions like checkout, setup-python updated)
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
