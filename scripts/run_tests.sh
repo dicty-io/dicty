@@ -24,9 +24,14 @@ echo "[*] Checking engine endpoint centralization..."
 chmod +x scripts/check_engine_endpoint.sh
 ./scripts/check_engine_endpoint.sh
 
-# Run unittest test discovery across tests directory
-echo "[*] Executing backend test suite..."
-$PYTHON_BIN -m unittest discover -s tests -p "test_*.py" -v
+# Run test suite with coverage
+echo "[*] Executing backend test suite with coverage..."
+$PYTHON_BIN -m coverage run -m unittest discover -s tests -p "test_*.py" -v
+if $PYTHON_BIN -m coverage xml -o coverage.xml; then
+    echo "[+] Generated coverage.xml report successfully."
+else
+    echo "[!] Warning: Failed to generate coverage.xml report."
+fi
 
 # Check if Swift tests should be skipped
 if [ "$1" = "--backend-only" ] || [ "$BACKEND_ONLY" = "1" ] || [ "$SKIP_SWIFT" = "1" ]; then

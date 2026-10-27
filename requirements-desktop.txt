@@ -3,5 +3,6 @@ pyside6>=6.12.0
 qtawesome>=1.4.2
 pyobjc-framework-Cocoa; sys_platform == 'darwin'
 openai-whisper
+coverage>=7.6.0
 
 
