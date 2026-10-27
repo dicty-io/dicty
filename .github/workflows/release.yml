@@ -145,20 +145,8 @@ jobs:
 
             core.setOutput('next_tag', nextTag);
 
-            // Save notes to a file so mirroring step can use it
-            require('fs').writeFileSync('release_notes.txt', notes);
-
-      - name: Mirror release to public organization repository
-        env:
-          GITHUB_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
-        run: |
-          gh release create v${{ steps.compute.outputs.next_tag }} \
-            --repo dicty-io/dicty \
-            --title "v${{ steps.compute.outputs.next_tag }}" \
-            --notes-file release_notes.txt
-
       - name: Summary
-        run: echo "Created release v${{ steps.compute.outputs.next_tag }} on private repo and mirrored to dicty-io/dicty!"
+        run: echo "Successfully created release v${{ steps.compute.outputs.next_tag }}!"
 
   build_mac:
     needs: release
@@ -199,9 +187,9 @@ jobs:
           fi
           ./make_dmg.sh
 
-      - name: Compute Checksum and Upload DMG to Public Organization Release
+      - name: Compute Checksum and Upload DMG Release Assets
         env:
-          GITHUB_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           shasum -a 256 dist/Dicty.dmg > dist/Dicty.dmg.sha256
           echo "[+] Generated dist/Dicty.dmg.sha256:"
@@ -209,8 +197,8 @@ jobs:
 
           MAX_RETRIES=5
           for i in $(seq 1 $MAX_RETRIES); do
-            echo "[*] Uploading dist/Dicty.dmg and checksum to dicty-io/dicty (attempt $i/$MAX_RETRIES)..."
-            if gh release upload "v${{ needs.release.outputs.next_tag }}" dist/Dicty.dmg dist/Dicty.dmg.sha256 --repo dicty-io/dicty --clobber; then
+            echo "[*] Uploading dist/Dicty.dmg and checksum to GitHub Release (attempt $i/$MAX_RETRIES)..."
+            if gh release upload "v${{ needs.release.outputs.next_tag }}" dist/Dicty.dmg dist/Dicty.dmg.sha256 --clobber; then
               echo "[+] Successfully uploaded Dicty.dmg and Dicty.dmg.sha256 to GitHub Release!"
               break
             fi
@@ -377,14 +365,10 @@ jobs:
           cd DictyClientTauri
           npm run tauri build
 
-      - name: Compute Checksum and Upload Windows Installer to Public Organization Release
+      - name: Compute Checksum and Upload Windows Installer Release Assets
         env:
-          GITHUB_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if (-not $env:GITHUB_TOKEN) {
-            Write-Host "PUBLIC_REPO_TOKEN not provided, skipping upload to public repo."
-            exit 0
-          }
           $tag = "v${{ needs.release.outputs.next_tag }}"
           $targetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { "DictyClientTauri\src-tauri\target" }
           $files = Get-ChildItem -Path "$targetDir\release\bundle\nsis\*.exe", "DictyClientTauri\src-tauri\target\release\bundle\nsis\*.exe" -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*${{ needs.release.outputs.next_tag }}*" }
@@ -396,7 +380,7 @@ jobs:
             $shaFile = "$($f.FullName).sha256"
             "$sha256  $($f.Name)" | Out-File -FilePath $shaFile -Encoding ascii
             Write-Host "Generated SHA256 for $($f.Name): $sha256"
-            Write-Host "Uploading $($f.Name) and $($f.Name).sha256 to $tag on dicty-io/dicty..."
-            gh release upload $tag $f.FullName $shaFile --repo dicty-io/dicty --clobber
+            Write-Host "Uploading $($f.Name) and $($f.Name).sha256 to $tag on GitHub Release..."
+            gh release upload $tag $f.FullName $shaFile --clobber
           }
 
