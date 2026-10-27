@@ -18,6 +18,11 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
 </p>
 
+<p align="center">
+  <a href="https://dicty.io">Homepage</a> &nbsp;|&nbsp;
+  <a href="https://dicty.io/docs/getting-started">Documentation</a>
+</p>
+
 ---
 
 ## Overview
@@ -27,6 +32,26 @@ Dicty is an open-source, local-first voice dictation application designed for de
 Commercial alternatives frequently gate basic functionality behind paid subscriptions ($10–$20/month) or stream raw microphone audio to third-party cloud APIs. Dicty executes speech inference locally using an embedded, pre-warmed C++ `whisper.cpp` server accelerated by Metal GPU in RAM. Spoken input is transcribed, normalized, and inserted directly into the active application in **under 300 ms**.
 
 Whether authoring comments in Cursor, answering Slack messages, drafting documentation, or recording meetings, Dicty delivers context-aware dictation with zero cloud dependency.
+
+---
+
+## Screenshots
+
+A quick look at the desktop app.
+
+| Modes | Models |
+|:---:|:---:|
+| [![Modes](docs/pictures/modes.png)](docs/pictures/modes.png) | [![Models](docs/pictures/models.png)](docs/pictures/models.png) |
+| **Modes** — one place for style, corrections, translation and meeting setup. | **Models** — run on this Mac, in the cloud, or mix both. |
+| [![App Rules](docs/pictures/app-rules.png)](docs/pictures/app-rules.png) | [![Words](docs/pictures/snippets.png)](docs/pictures/snippets.png) |
+| **App Rules** — let Dicty pick the right mode for each app. | **Words** — turn short phrases into full snippets, and teach Dicty your names. |
+| [![Projects](docs/pictures/projects.png)](docs/pictures/projects.png) | [![Integrations](docs/pictures/integrations.png)](docs/pictures/integrations.png) |
+| **Projects** — turn a repository into architecture docs. | **Integrations** — GitHub, GitLab, Bitbucket, Confluence, Linear and Notion. |
+
+<p align="center">
+  <a href="docs/pictures/appearance.png"><img src="docs/pictures/appearance.png" alt="Appearance settings with accent color choices" width="720"></a><br>
+  <sub><b>Make it yours</b> — light, dark or auto, with six accent colors and per-mode overlay colors.</sub>
+</p>
 
 ---
 
@@ -187,6 +212,7 @@ swift test
 
 ## Documentation
 
+* **[Documentation](https://dicty.io/docs/getting-started)**: Getting started, guides, and reference.
 * **[Contributing Guide](CONTRIBUTING.md)**: Architecture lifecycle, SwiftUI performance rules, and code guidelines.
 * **[Telemetry and Privacy Policy](docs/telemetry.md)**: Opt-in telemetry specification and zero-PII guarantees.
 * **[Architecture Decision Records](docs/architecture/architecture_decisions.md)**: Design choices and security boundaries.
