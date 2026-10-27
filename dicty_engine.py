@@ -2845,7 +2845,15 @@ async def process_transcription(
 
             return '\n\n'.join(cleaned_lines)
             
-        if dictation_format_style == "punctuation_fast":
+        if dictation_format_style == "clean":
+            print("[+] Applying Rule-Based parsing for 'clean' style (0ms)...")
+            try:
+                import style_rules
+                raw_text = style_rules.apply_style(raw_text, "clean")
+            except Exception as clean_err:
+                print(f"[!] Clean style rule failed: {clean_err}")
+            llm_ms = (time.perf_counter() - t_fmt_start) * 1000.0
+        elif dictation_format_style == "punctuation_fast":
             print("[+] Applying Fast Punctuation & Rule-Based parsing (0ms)...")
             raw_text = parse_spoken_punctuation(raw_text)
             llm_ms = (time.perf_counter() - t_fmt_start) * 1000.0
@@ -3054,6 +3062,36 @@ async def process_transcription(
                         if "<think>" in formatted_text:
                             import re
                             formatted_text = re.sub(r"(?s)<think>.*?</think>", "", formatted_text).strip()
+
+                        # Strip stray wrapping triple-quotes, markdown fences, or outer quotes defensively
+                        if formatted_text.startswith('"""') and formatted_text.endswith('"""') and len(formatted_text) >= 6:
+                            formatted_text = formatted_text[3:-3].strip()
+                        elif formatted_text.startswith("'''") and formatted_text.endswith("'''") and len(formatted_text) >= 6:
+                            formatted_text = formatted_text[3:-3].strip()
+                        elif formatted_text.startswith("```") and formatted_text.endswith("```") and len(formatted_text) >= 6:
+                            import re
+                            # Multiline fenced code block with optional language tag (must be followed by newline)
+                            multiline_match = re.match(r"^```[a-zA-Z0-9_-]*\n(.*?)\n```$", formatted_text, flags=re.DOTALL)
+                            if multiline_match:
+                                formatted_text = multiline_match.group(1).strip()
+                            elif re.match(r"^```\s*\n(.*?)\n```$", formatted_text, flags=re.DOTALL):
+                                formatted_text = re.sub(r"^```\s*\n(.*?)\n```$", r"\1", formatted_text, flags=re.DOTALL).strip()
+                        
+                        # Match outer quotation pairs (straight or curly), but preserve intentional quotes for book dialogue or code snippets
+                        matching_quotes = {
+                            '"': '"',
+                            "'": "'",
+                            "“": "”",
+                            "\u201c": "\u201d",
+                            "‘": "’",
+                            "\u2018": "\u2019",
+                            "«": "»"
+                        }
+                        if len(formatted_text) >= 2 and dictation_format_style not in ("book", "code"):
+                            first_char = formatted_text[0]
+                            expected_closing = matching_quotes.get(first_char)
+                            if expected_closing and formatted_text[-1] == expected_closing:
+                                formatted_text = formatted_text[1:-1].strip()
                             
                         if formatted_text:
                             import re

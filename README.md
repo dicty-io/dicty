@@ -152,7 +152,7 @@ Dicty operates as three decoupled local processes for stability, low latency, an
 #### Build and Run
 ```bash
 # 1. Clone repository
-git clone https://github.com/vkazmin1/dicty.git
+git clone https://github.com/dicty-io/dicty.git
 cd dicty
 
 # 2. Setup Python backend

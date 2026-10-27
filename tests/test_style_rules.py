@@ -54,6 +54,18 @@ class CleanStyleTests(unittest.TestCase):
             sr.apply_clean("send it friday comma please period"),
             "Send it friday, please.",
         )
+        self.assertEqual(
+            sr.apply_clean("first part new sentence second part"),
+            "First part. Second part.",
+        )
+        self.assertEqual(
+            sr.apply_clean("state of the art hyphen design"),
+            "State of the art-design.",
+        )
+        self.assertEqual(
+            sr.apply_clean("he said open quote hello close quote"),
+            "He said «hello».",
+        )
 
     def test_real_repeats_are_kept(self):
         # Removing false starts is self-correction's job, not clean's.
