@@ -21,11 +21,11 @@ version-resolver:
   default: patch
 
 categories:
-  - title: '🚀 Features & Enhancements'
+  - title: 'Features & Enhancements'
     labels:
       - 'feature'
       - 'enhancement'
-  - title: '🐛 Bug Fixes & Stability'
+  - title: 'Bug Fixes & Stability'
     labels:
       - 'fix'
       - 'bug'
@@ -33,10 +33,10 @@ categories:
     labels:
       - 'performance'
       - 'latency'
-  - title: '📦 Dependency Updates'
+  - title: 'Dependency Updates'
     labels:
       - 'dependencies'
-  - title: '🧰 Maintenance & Documentation'
+  - title: 'Maintenance & Documentation'
     labels:
       - 'chore'
       - 'documentation'
