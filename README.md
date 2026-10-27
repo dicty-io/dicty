@@ -32,19 +32,16 @@ Whether authoring comments in Cursor, answering Slack messages, drafting documen
 
 ## Core Capabilities
 
-* **Sub-300ms Latency**: A persistent local `whisper-server` process remains resident in RAM on a dedicated loopback port, avoiding per-utterance model initialization overhead.
-* **100% Offline and Private**: Operates entirely air-gapped without an internet connection. Audio never leaves the local machine unless external cloud providers are explicitly configured.
-* **Zero-Knowledge Telemetry**: Telemetry is strictly opt-in and disabled by default. Dicty never collects transcripts, audio recordings, user emails, or active application identifiers ([Telemetry Policy](docs/telemetry.md)).
-* **Active Window Context Awareness**: Inspects the frontmost application to adapt syntax and tone:
-  * **Slack / Discord**: Short paragraphs and conversational format.
-  * **Cursor / VS Code / Xcode**: Code comments, identifiers (`parseUserToken`), docstrings.
-  * **Mail / Notes**: Structured paragraphs, formal greetings, and standard sign-offs.
-* **Native Double-Tap Shortcuts**: Triggers immediately using double taps on modifier keys: `2× Fn`, `2× Option`, `2× Command`, or `2× Shift` (with hardware debounce and push-to-talk support).
-* **Clipboard Preservation**: Injects text via synthetic keystrokes (`CGEvent`) and automatically restores the user's prior pasteboard state without corrupting existing copied content.
-* **Deterministic Snippets and Vocabulary**: Spoken phrase triggers (e.g. *"my email"*) expand into custom snippet values (`john@example.com`) in ~0ms before optional LLM formatting stages.
-* **Incognito Mode**: In-memory ephemeral dictation processed strictly in volatile RAM, with zero disk caching or history database writes.
-* **Media Playback Handling**: Automatically pauses or ducks media playback (Spotify, Apple Music, YouTube) when dictation begins and restores state upon release.
-* **Meeting Transcription**: Captures microphone and system loopback audio simultaneously with speaker separation and action-item generation.
+* **Sub-300ms Local Latency**: Pre-warmed C++ `whisper.cpp` server kept resident in RAM over a dedicated loopback IPC channel, completely avoiding per-utterance model load times.
+* **100% Offline & Zero-Cloud Guarantee**: All speech inference, audio processing, and snippet substitutions execute strictly on-device using Metal GPU acceleration. Operates fully air-gapped with zero required telemetry ([Telemetry Policy](docs/telemetry.md)).
+* **Active Window Context Awareness**: Inspects frontmost application metadata to dynamically adapt syntax, grammar, and casing:
+  * **IDEs (Cursor, VS Code, Xcode)**: Formats identifiers (`camelCase`, `snake_case`), docstrings, and code comments.
+  * **Chat (Slack, Discord)**: Conversational cadence and concise sentence structures.
+  * **Email & Docs (Mail, Notes)**: Formal paragraphs, bulleted outlines, and structured sign-offs.
+* **Zero-Latency Snippet Expansion**: Injects deterministic text templates (e.g. snippets, boilerplate, links) locally with exact pattern matching (~0ms overhead) before optional post-processing.
+* **Non-Destructive Keystroke Injection**: Dispatches synthetic keystrokes directly into active application viewports while preserving and restoring the user's prior clipboard buffer intact.
+* **Dual-Track Meeting Transcription**: Concurrently records microphone and internal system loopback audio with distinct speaker channel separation and automated meeting summary extraction.
+* **RAM-Only Ephemeral Mode**: Provides an in-memory session profile that never persists audio fragments, transcripts, or metadata to SQLite or disk caches.
 
 ---
 
