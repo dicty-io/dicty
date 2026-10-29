@@ -92,4 +92,12 @@ scratch/
 .agents
 .agents/
 AGENTS.md
+.kilo/
+.opencode/
+
+# Test coverage & build artifacts
+.coverage
+coverage.xml
+.build/
+scratch*
 

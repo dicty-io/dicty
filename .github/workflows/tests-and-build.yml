@@ -1,6 +1,15 @@
 name: Automated Tests & Build Verification
 
 on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - 'DictyClientTauri/**'
+      - 'scripts/windows/**'
+      - 'requirements-windows.txt'
+      - '*.bat'
+      - '*.ps1'
+      - '**.md'
   pull_request:
     branches: [ main ]
     paths-ignore:
@@ -21,12 +30,54 @@ concurrency:
 
 jobs:
   # =========================================================================
-  # 1. SELF-HOSTED MAC RUNNER TEST SUITE
+  # 1. GITHUB-HOSTED PYTHON BACKEND TEST SUITE (Safe for outside forks)
+  # =========================================================================
+  python-tests:
+    name: Python Backend Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14]
+        python-version: ['3.12']
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install coverage
+
+      - name: Run Backend Unit Tests with Coverage
+        run: |
+          chmod +x scripts/check_engine_endpoint.sh
+          ./scripts/check_engine_endpoint.sh
+          python3 -m coverage run -m unittest discover -s tests -p "test_*.py" -v
+          python3 -m coverage xml -o coverage.xml
+
+      - name: Upload Coverage Reports to Codecov
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
+        continue-on-error: true
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          fail_ci_if_error: false
+
+  # =========================================================================
+  # 2. SELF-HOSTED MAC RUNNER TEST SUITE (Apple Silicon Metal & Swift Build)
   # =========================================================================
   test-and-verify:
-    name: Backend & Swift Client Test Suite
-    # Runs automatically on internal branches; requires maintainer "Approve and run" for outside forks
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    name: Backend & Swift Client Test Suite (Self-Hosted Apple Silicon)
+    # Runs on internal pushes or PRs where maintainer approves outside forks
+    if: github.repository == 'dicty-io/dicty' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: [self-hosted, macOS]
     env:
       RUNNER_TOOL_CACHE: /tmp/hostedtoolcache
@@ -101,18 +152,24 @@ jobs:
           ./scripts/validate_app_bundle.sh
 
   # =========================================================================
-  # 2. TEST STATUS GATE
+  # 3. TEST STATUS GATE
   # =========================================================================
   tests-quality-gate:
     name: Tests Quality Gate
-    needs: test-and-verify
-    runs-on: [self-hosted, macOS]
-    env:
-      RUNNER_TOOL_CACHE: /tmp/hostedtoolcache
-      AGENT_TOOLSDIRECTORY: /tmp/hostedtoolcache
+    if: always()
+    needs: [python-tests, test-and-verify]
+    runs-on: ubuntu-latest
     steps:
       - name: Verify All Test Checks Passed
         run: |
+          if [ "${{ needs.python-tests.result }}" != "success" ]; then
+            echo "[-] python-tests failed!"
+            exit 1
+          fi
+          if [ "${{ needs.test-and-verify.result }}" == "failure" ]; then
+            echo "[-] test-and-verify failed!"
+            exit 1
+          fi
           echo "=================================================================="
-          echo " ✅ ALL AUTOMATED TESTS & BUILDS PASSED ON SELF-HOSTED RUNNER!"
+          echo " ✅ ALL AUTOMATED TESTS & BUILDS PASSED!"
           echo "=================================================================="
