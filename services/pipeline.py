@@ -9,10 +9,11 @@ import re
 import shutil
 import snippet_service
 import style_rules
+import tempfile
 import time
 import uuid
 import wave
-from services.paths import HISTORY_DIR, get_log_dir
+from services.paths import HISTORY_DIR, INPUT_DIR, get_log_dir
 from llm_service import LLMService
 from transcribe_service import TranscribeService
 from datetime import datetime
@@ -992,7 +993,6 @@ async def process_transcription(
                             msg = llm_response["choices"][0].get("message", {})
                             formatted_text = (msg.get("content") or "").strip()
                             if not formatted_text and msg.get("reasoning_content"):
-                                import re
                                 formatted_text = re.sub(r"(?s)<think>.*?</think>", "", msg["reasoning_content"]).strip()
                         elif "message" in llm_response:
                             formatted_text = (llm_response["message"].get("content") or "").strip()
@@ -1001,7 +1001,6 @@ async def process_transcription(
                         
                         # Strip any stray <think> tags if model outputted them
                         if "<think>" in formatted_text:
-                            import re
                             formatted_text = re.sub(r"(?s)<think>.*?</think>", "", formatted_text).strip()
 
                         # Strip stray wrapping triple-quotes, markdown fences, or outer quotes defensively
@@ -1010,7 +1009,6 @@ async def process_transcription(
                         elif formatted_text.startswith("'''") and formatted_text.endswith("'''") and len(formatted_text) >= 6:
                             formatted_text = formatted_text[3:-3].strip()
                         elif formatted_text.startswith("```") and formatted_text.endswith("```") and len(formatted_text) >= 6:
-                            import re
                             # Multiline fenced code block with optional language tag (must be followed by newline)
                             multiline_match = re.match(r"^```[a-zA-Z0-9_-]*\n(.*?)\n```$", formatted_text, flags=re.DOTALL)
                             if multiline_match:
@@ -1035,7 +1033,6 @@ async def process_transcription(
                                 formatted_text = formatted_text[1:-1].strip()
                             
                         if formatted_text:
-                            import re
                             if resolved_author:
                                 formatted_text = re.sub(r"\[(?:Your\s+Name|Name|Sender|Author)\]", resolved_author, formatted_text, flags=re.IGNORECASE)
                             if dictation_format_style == "email":

@@ -64,13 +64,16 @@ async def websocket_transcribe_tail(websocket: WebSocket):
     ]
     resolved_candidate = None
     for ad in allowed_dirs:
-        cand = os.path.join(ad, safe_name)
-        real_cand = os.path.realpath(cand)
-        if os.path.commonpath([ad, real_cand]) != ad:
+        try:
+            # Check directory entries directly to ensure file exists and is confined
+            entries = os.listdir(ad)
+            if safe_name in entries:
+                cand = os.path.realpath(os.path.join(ad, safe_name))
+                if os.path.commonpath([ad, cand]) == ad and os.path.isfile(cand):
+                    resolved_candidate = cand
+                    break
+        except Exception:
             continue
-        if os.path.exists(real_cand):
-            resolved_candidate = real_cand
-            break
 
     if not resolved_candidate:
         await websocket.send_json({"status": "error", "message": "Access denied: file outside permitted directories or not found"})

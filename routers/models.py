@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+import asyncio
 import httpx
 import os
 import platform
@@ -50,18 +51,39 @@ async def get_active_text_model():
 @router.post("/models/active_text/{model_id:path}")
 async def set_active_text_model(model_id: str):
     manager = ModelManager()
-    if not manager.is_model_downloaded(model_id):
+    import local_llm
+    # If model is a remote/cloud identifier containing '/', check if cloud provider or reject
+    if "/" in model_id:
+        models = manager.get_available_models()
+        target = next((m for m in models if m["id"] == model_id), None)
+        if not target or not target.get("is_cloud", False):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Model '{model_id}' is not supported by the local text runner."
+            )
+    elif not manager.is_model_downloaded(model_id):
         raise HTTPException(
             status_code=400,
             detail=f"Model '{model_id}' is not installed. Please download it before setting as active."
         )
+
     manager.set_active_text_model(model_id)
-    try:
-        import local_llm
-        if local_llm.is_server_running():
-            local_llm.switch_model(model_id)
-    except Exception as e:
-        print(f"[*] Note switching local_llm: {e}")
+    if local_llm.is_server_running():
+        try:
+            switch_ok = await asyncio.to_thread(local_llm.switch_model, model_id)
+            if not switch_ok:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to start local LLM server with model '{model_id}'."
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"[*] Note switching local_llm: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to switch local LLM server model: {e}"
+            )
     return {"status": "success", "active_text_model": model_id}
 
 @router.post("/models/active/{model_id:path}")
