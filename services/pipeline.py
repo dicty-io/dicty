@@ -1186,8 +1186,11 @@ async def process_transcription(
         else:
             scrub_immediately = history_manager.get_retention_settings().get("scrub_audio_immediately", False)
             if scrub_immediately:
+                history_root = os.path.realpath(HISTORY_DIR)
                 for suffix in [".wav", "_mic.wav", "_sys.wav"]:
-                    target_file = os.path.join(HISTORY_DIR, f"{safe_record_id}{suffix}")
+                    target_file = os.path.realpath(os.path.join(history_root, f"{safe_record_id}{suffix}"))
+                    if os.path.commonpath([history_root, target_file]) != history_root:
+                        continue
                     if os.path.exists(target_file):
                         try:
                             os.remove(target_file)
