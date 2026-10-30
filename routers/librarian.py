@@ -268,13 +268,15 @@ async def synthesize_librarian_docs(req: SynthesizeQueueRequest):
         # 1. Discover all available documentation in target directory / vault
         available_docs_list = []
         configured_vault = os.getenv("OBSIDIAN_VAULT_PATH", "")
-        # Validate that req.obsidian_path is within configured_vault, or fall back to configured_vault / docs
+        # Treat user input as a relative path inside the configured vault.
+        # This prevents absolute paths from escaping the trusted root.
         if req.target_type == "obsidian" and configured_vault:
             vault_root = os.path.realpath(configured_vault)
-            req_path = os.path.realpath(req.obsidian_path) if req.obsidian_path else vault_root
+            requested_subpath = (req.obsidian_path or "").strip().lstrip("/\\")
+            candidate_path = os.path.realpath(os.path.join(vault_root, requested_subpath)) if requested_subpath else vault_root
             try:
-                if os.path.commonpath([vault_root, req_path]) == vault_root:
-                    doc_dir = req_path
+                if os.path.commonpath([vault_root, candidate_path]) == vault_root:
+                    doc_dir = candidate_path
                 else:
                     doc_dir = vault_root
             except (ValueError, OSError):
@@ -301,13 +303,13 @@ async def synthesize_librarian_docs(req: SynthesizeQueueRequest):
         if req.target_file and req.target_file not in ["docs/ARCHITECTURE.md", "ARCHITECTURE.md"]:
             safe_basename = os.path.basename(req.target_file)
             candidate_path = os.path.realpath(os.path.join(doc_dir, safe_basename))
-            if candidate_path.startswith(doc_dir) and os.path.exists(candidate_path):
-                target_path = candidate_path
-                try:
+            try:
+                if os.path.commonpath([doc_dir, candidate_path]) == doc_dir and os.path.exists(candidate_path):
+                    target_path = candidate_path
                     with open(target_path, "r", encoding="utf-8", errors="replace") as f:
                         current_content = f.read()
-                except Exception:
-                    pass
+            except Exception:
+                pass
 
         # Read existing system architecture doc for holistic context
         architecture_overview = ""
@@ -482,9 +484,15 @@ async def synthesize_librarian_docs(req: SynthesizeQueueRequest):
                 pass
 
             # Resolve target path strictly within doc_dir
-            final_target_path = target_path or os.path.realpath(os.path.join(doc_dir, os.path.basename(doc_filename)))
-            if not final_target_path.startswith(doc_dir):
-                final_target_path = os.path.realpath(os.path.join(doc_dir, os.path.basename(doc_filename)))
+            safe_doc_name = os.path.basename(doc_filename)
+            candidate_target = target_path or os.path.realpath(os.path.join(doc_dir, safe_doc_name))
+            try:
+                if os.path.commonpath([doc_dir, candidate_target]) == doc_dir:
+                    final_target_path = candidate_target
+                else:
+                    final_target_path = os.path.realpath(os.path.join(doc_dir, safe_doc_name))
+            except (ValueError, OSError):
+                final_target_path = os.path.realpath(os.path.join(doc_dir, safe_doc_name))
 
             # Read original content if file already existed
             real_original_content = ""

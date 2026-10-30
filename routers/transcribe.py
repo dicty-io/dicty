@@ -65,13 +65,13 @@ async def websocket_transcribe_tail(websocket: WebSocket):
     resolved_candidate = None
     for ad in allowed_dirs:
         try:
-            # Check directory entries directly to ensure file exists and is confined
-            entries = os.listdir(ad)
-            if safe_name in entries:
-                cand = os.path.realpath(os.path.join(ad, safe_name))
-                if os.path.commonpath([ad, cand]) == ad and os.path.isfile(cand):
-                    resolved_candidate = cand
-                    break
+            with os.scandir(ad) as it:
+                for entry in it:
+                    if entry.is_file() and entry.name == safe_name:
+                        resolved_candidate = os.path.realpath(entry.path)
+                        break
+            if resolved_candidate:
+                break
         except Exception:
             continue
 
