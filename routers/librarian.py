@@ -3,6 +3,7 @@ import asyncio
 import httpx
 import json
 import os
+import re
 from pydantic import BaseModel
 from fastapi import HTTPException
 from typing import List, Optional
@@ -301,15 +302,17 @@ async def synthesize_librarian_docs(req: SynthesizeQueueRequest):
         target_path = None
         current_content = None
         if req.target_file and req.target_file not in ["docs/ARCHITECTURE.md", "ARCHITECTURE.md"]:
-            safe_basename = os.path.basename(req.target_file)
-            candidate_path = os.path.realpath(os.path.join(doc_dir, safe_basename))
-            try:
-                if os.path.commonpath([doc_dir, candidate_path]) == doc_dir and os.path.exists(candidate_path):
-                    target_path = candidate_path
-                    with open(target_path, "r", encoding="utf-8", errors="replace") as f:
-                        current_content = f.read()
-            except Exception:
-                pass
+            safe_basename = os.path.basename(req.target_file.strip())
+            # Allow only simple markdown filenames to prevent user-controlled path expressions
+            if re.fullmatch(r"[A-Za-z0-9._-]+\.md", safe_basename):
+                candidate_path = os.path.realpath(os.path.join(doc_dir, safe_basename))
+                try:
+                    if os.path.commonpath([doc_dir, candidate_path]) == doc_dir and os.path.exists(candidate_path):
+                        target_path = candidate_path
+                        with open(target_path, "r", encoding="utf-8", errors="replace") as f:
+                            current_content = f.read()
+                except Exception:
+                    pass
 
         # Read existing system architecture doc for holistic context
         architecture_overview = ""
