@@ -1091,23 +1091,37 @@ async def process_transcription(
     else:
         # Save to history
         record_id = existing_record_id or str(uuid.uuid4())
+        # Ensure record_id is a safe identifier without directory components
+        record_id = os.path.basename(record_id)
         timestamp = datetime.now().astimezone().isoformat(timespec='seconds')
         dest_audio = os.path.join(HISTORY_DIR, f"{record_id}.wav")
         playback_src = mixed_audio_path or audio_path
         if playback_src and os.path.abspath(playback_src) != os.path.abspath(dest_audio) and os.path.exists(playback_src):
-            shutil.copy2(playback_src, dest_audio)
+            real_src = os.path.realpath(playback_src)
+            real_dest = os.path.realpath(dest_audio)
+            history_root = os.path.realpath(HISTORY_DIR)
+            if real_dest.startswith(history_root) and (real_src.startswith(history_root) or real_src.startswith(os.path.realpath(INPUT_DIR)) or real_src.startswith(os.path.realpath(tempfile.gettempdir()))):
+                shutil.copy2(real_src, dest_audio)
 
         dest_mic = ""
         dest_sys = ""
         if is_separated_meeting:
             if mic_audio_path and os.path.exists(mic_audio_path):
                 dest_mic = os.path.join(HISTORY_DIR, f"{record_id}_mic.wav")
-                if os.path.abspath(mic_audio_path) != os.path.abspath(dest_mic):
-                    shutil.copy2(mic_audio_path, dest_mic)
+                real_mic = os.path.realpath(mic_audio_path)
+                real_dest_mic = os.path.realpath(dest_mic)
+                history_root = os.path.realpath(HISTORY_DIR)
+                if real_dest_mic.startswith(history_root) and (real_mic.startswith(history_root) or real_mic.startswith(os.path.realpath(INPUT_DIR)) or real_mic.startswith(os.path.realpath(tempfile.gettempdir()))):
+                    if os.path.abspath(mic_audio_path) != os.path.abspath(dest_mic):
+                        shutil.copy2(real_mic, dest_mic)
             if audio_path and os.path.exists(audio_path):
                 dest_sys = os.path.join(HISTORY_DIR, f"{record_id}_sys.wav")
-                if os.path.abspath(audio_path) != os.path.abspath(dest_sys):
-                    shutil.copy2(audio_path, dest_sys)
+                real_sys = os.path.realpath(audio_path)
+                real_dest_sys = os.path.realpath(dest_sys)
+                history_root = os.path.realpath(HISTORY_DIR)
+                if real_dest_sys.startswith(history_root) and (real_sys.startswith(history_root) or real_sys.startswith(os.path.realpath(INPUT_DIR)) or real_sys.startswith(os.path.realpath(tempfile.gettempdir()))):
+                    if os.path.abspath(audio_path) != os.path.abspath(dest_sys):
+                        shutil.copy2(real_sys, dest_sys)
         
         credits_used = 0
         from model_manager import ModelManager
@@ -1160,10 +1174,15 @@ async def process_transcription(
         else:
             scrub_immediately = history_manager.get_retention_settings().get("scrub_audio_immediately", False)
             if scrub_immediately:
+                history_root = os.path.realpath(HISTORY_DIR)
                 for p in [dest_audio, dest_mic, dest_sys]:
                     if p and os.path.exists(p):
-                        try: os.remove(p)
-                        except Exception: pass
+                        real_p = os.path.realpath(p)
+                        if real_p.startswith(history_root):
+                            try:
+                                os.remove(real_p)
+                            except Exception:
+                                pass
                 dest_audio = ""
                 dest_mic = ""
                 dest_sys = ""

@@ -43,21 +43,36 @@ async def websocket_transcribe_tail(websocket: WebSocket):
         await websocket.close(code=1008, reason="Invalid file path")
         return
 
-    real_wav_path = os.path.realpath(os.path.abspath(wav_path))
-    ext = os.path.splitext(real_wav_path)[1].lower()
-    if ext not in [".wav", ".m4a", ".mp3", ".aac", ".flac", ".ogg", ".caf"]:
-        await websocket.send_json({"status": "error", "message": "Unsupported file format"})
-        await websocket.close(code=1008, reason="Unsupported file format")
-        return
-
+    # Restrict to safe filename within allowed input directories to prevent path injection
+    safe_name = os.path.basename(wav_path)
     allowed_dirs = [
         os.path.realpath(INPUT_DIR),
         os.path.realpath(tempfile.gettempdir()),
         os.path.realpath(DATA_DIR)
     ]
-    if not any(real_wav_path.startswith(ad) for ad in allowed_dirs):
-        await websocket.send_json({"status": "error", "message": "Access denied: file outside permitted directories"})
+    resolved_candidate = None
+    for ad in allowed_dirs:
+        cand = os.path.realpath(os.path.join(ad, safe_name))
+        if cand.startswith(ad) and os.path.exists(cand):
+            resolved_candidate = cand
+            break
+
+    if not resolved_candidate:
+        # Fall back to testing direct path only if fully contained in allowed_dirs
+        direct_real = os.path.realpath(os.path.abspath(wav_path))
+        if any(direct_real.startswith(ad) for ad in allowed_dirs) and os.path.exists(direct_real):
+            resolved_candidate = direct_real
+
+    if not resolved_candidate:
+        await websocket.send_json({"status": "error", "message": "Access denied: file outside permitted directories or not found"})
         await websocket.close(code=1008, reason="Access denied")
+        return
+
+    real_wav_path = resolved_candidate
+    ext = os.path.splitext(real_wav_path)[1].lower()
+    if ext not in [".wav", ".m4a", ".mp3", ".aac", ".flac", ".ogg", ".caf"]:
+        await websocket.send_json({"status": "error", "message": "Unsupported file format"})
+        await websocket.close(code=1008, reason="Unsupported file format")
         return
     
     transcriber = TranscribeService()
@@ -330,13 +345,23 @@ async def transcribe_local_file(
             if not openai_api_key and not llm_base_url and llm_provider != "dicty_cloud":
                 return {"status": "error", "message": "No backend API Key provided for action."}
                 
-            url = f"{dicty_cloud_url}/v1/chat/completions" if llm_provider == "dicty_cloud" else ("https://openrouter.ai/api/v1/chat/completions" if llm_provider == "openrouter" else (llm_base_url + "/chat/completions" if llm_provider == "lmstudio" else (llm_base_url if llm_base_url else "https://openrouter.ai/api/v1/chat/completions")))
-            
-            if not url.endswith("/chat/completions"):
-                if url.endswith("/v1"):
-                    url += "/chat/completions"
+            from urllib.parse import urlparse
+            if llm_provider == "dicty_cloud":
+                url = f"{dicty_cloud_url.rstrip('/')}/v1/chat/completions"
+            elif llm_provider == "openrouter":
+                url = "https://openrouter.ai/api/v1/chat/completions"
+            elif llm_provider in ("lmstudio", "ollama", "local"):
+                base = llm_base_url or "http://localhost:1234/v1"
+                parsed = urlparse(base)
+                # Restrict local providers to loopback interfaces to prevent SSRF
+                if parsed.hostname not in ("localhost", "127.0.0.1", "::1"):
+                    return {"status": "error", "message": "Local LLM base URL must target localhost or 127.0.0.1"}
+                if not base.endswith("/chat/completions"):
+                    url = f"{base.rstrip('/')}/chat/completions" if base.endswith("/v1") else f"{base.rstrip('/')}/v1/chat/completions"
                 else:
-                    url += "/v1/chat/completions"
+                    url = base
+            else:
+                url = "https://openrouter.ai/api/v1/chat/completions"
                     
             api_key_to_use = llm_api_key or openai_api_key or ""
             headers = {
@@ -370,11 +395,8 @@ async def transcribe_local_file(
                     raw_text = res_json["choices"][0]["message"]["content"]
                     print("[+] Translation complete.")
             except Exception as e:
-                error_msg = f"{e}"
-                if 'resp' in locals() and hasattr(resp, 'text'):
-                    error_msg += f" - {resp.text}"
-                print(f"[!] Target Language Translation failed: {error_msg}")
-                raw_text += f"\n\n[Translation Failed: {error_msg}]"
+                print(f"[!] Target Language Translation failed: {e}")
+                raw_text += "\n\n[Translation Failed: Unable to complete translation via LLM service]"
         
         end_time = time.time()
         transcription_time = end_time - start_time

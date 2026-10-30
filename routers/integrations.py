@@ -17,7 +17,8 @@ async def get_linear_workspaces(linear_api_token: str = "", x_linear_token: str 
             resp = await client.get(f"{ORCHESTRATOR_URL}/linear/workspaces", headers={"X-Linear-Token": token})
             return resp.json()
     except Exception as e:
-        return {"status": "error", "message": str(e), "workspaces": {"teams": [], "projects": []}}
+        print(f"[!] Failed to fetch linear workspaces: {e}")
+        return {"status": "error", "message": "Failed to fetch Linear workspaces", "workspaces": {"teams": [], "projects": []}}
 
 
 @router.get("/pending_updates")
@@ -149,7 +150,8 @@ async def approve_pending_update(pending_id: str, req: Request):
             resp = await client.post(f"{ORCHESTRATOR_URL}/pending_updates/{pending_id}/approve", json=data)
             return resp.json()
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        print(f"[!] Pending update approval failed: {e}")
+        return {"status": "error", "message": "Failed to approve pending update"}
 
 @router.post("/pending_updates/{pending_id}/reject")
 async def reject_pending_update(pending_id: str):
@@ -162,7 +164,8 @@ async def reject_pending_update(pending_id: str):
             resp = await client.post(f"{ORCHESTRATOR_URL}/pending_updates/{pending_id}/reject")
             return resp.json()
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        print(f"[!] Pending update rejection failed: {e}")
+        return {"status": "error", "message": "Failed to reject pending update"}
 
 @router.delete("/pending_updates/{pending_id}")
 async def delete_pending_update(pending_id: str):
@@ -239,7 +242,8 @@ async def proxy_reupload_history_update(history_id: str, req: Request):
             resp = await client.post(f"{ORCHESTRATOR_URL}/updates/history/{history_id}/reupload", json=data)
             return resp.json()
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        print(f"[!] Re-upload proxy failed: {e}")
+        return {"status": "error", "message": "Failed to re-upload update"}
 
 @router.post("/notion/test_connection")
 async def test_notion_connection(req: Request):
@@ -266,7 +270,8 @@ async def proxy_reconcile_notion(req: Request):
                 print(f"[ERROR] Proxy /reconcile/notion failed: {resp.status_code} - {resp.text}", flush=True)
             return resp.json()
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        print(f"[!] Reconcile Notion proxy failed: {e}")
+        return {"status": "error", "message": "Failed to reconcile with Notion"}
 
 @router.post("/reconcile/architecture")
 async def proxy_reconcile_architecture(req: Request):

@@ -267,7 +267,13 @@ async def synthesize_librarian_docs(req: SynthesizeQueueRequest):
         
         # 1. Discover all available documentation in target directory / vault
         available_docs_list = []
-        doc_dir = obsidian_path if (req.target_type == "obsidian" and obsidian_path) else os.path.abspath("docs")
+        configured_vault = os.getenv("OBSIDIAN_VAULT_PATH", "")
+        # Confine obsidian_path to configured vault if provided, or default docs directory
+        if req.target_type == "obsidian" and configured_vault:
+            doc_dir = os.path.realpath(configured_vault)
+        else:
+            doc_dir = os.path.realpath("docs")
+            
         if os.path.exists(doc_dir):
             try:
                 for root, dirs, files in os.walk(doc_dir):
@@ -285,11 +291,9 @@ async def synthesize_librarian_docs(req: SynthesizeQueueRequest):
         current_content = None
         if req.target_file and req.target_file not in ["docs/ARCHITECTURE.md", "ARCHITECTURE.md"]:
             safe_basename = os.path.basename(req.target_file)
-            if req.target_type == "obsidian" and obsidian_path:
-                target_path = os.path.join(obsidian_path, safe_basename)
-            else:
-                target_path = os.path.join("docs", safe_basename)
-            if os.path.exists(target_path):
+            candidate_path = os.path.realpath(os.path.join(doc_dir, safe_basename))
+            if candidate_path.startswith(doc_dir) and os.path.exists(candidate_path):
+                target_path = candidate_path
                 try:
                     with open(target_path, "r", encoding="utf-8", errors="replace") as f:
                         current_content = f.read()
@@ -301,13 +305,13 @@ async def synthesize_librarian_docs(req: SynthesizeQueueRequest):
         arch_candidates = [
             os.path.join(doc_dir, "ARCHITECTURE.md"),
             os.path.join(doc_dir, "architecture.md"),
-            "docs/ARCHITECTURE.md",
-            "ARCHITECTURE.md"
+            os.path.realpath("docs/ARCHITECTURE.md"),
         ]
         for ac in arch_candidates:
-            if os.path.exists(ac):
+            real_ac = os.path.realpath(ac)
+            if real_ac.startswith(doc_dir) and os.path.exists(real_ac):
                 try:
-                    with open(ac, "r", encoding="utf-8", errors="replace") as f:
+                    with open(real_ac, "r", encoding="utf-8", errors="replace") as f:
                         architecture_overview = f.read()
                     break
                 except Exception:
@@ -468,12 +472,10 @@ async def synthesize_librarian_docs(req: SynthesizeQueueRequest):
             except Exception:
                 pass
 
-            # Resolve target path & check if file already exists
-            final_target_path = target_path
-            if req.target_type == "obsidian" and obsidian_path:
-                final_target_path = os.path.join(obsidian_path, doc_filename)
-            else:
-                final_target_path = os.path.join("docs", doc_filename) if not os.path.dirname(doc_filename) else doc_filename
+            # Resolve target path strictly within doc_dir
+            final_target_path = target_path or os.path.realpath(os.path.join(doc_dir, os.path.basename(doc_filename)))
+            if not final_target_path.startswith(doc_dir):
+                final_target_path = os.path.realpath(os.path.join(doc_dir, os.path.basename(doc_filename)))
 
             # Read original content if file already existed
             real_original_content = ""
@@ -542,4 +544,4 @@ async def synthesize_librarian_docs(req: SynthesizeQueueRequest):
         import traceback
         traceback.print_exc()
         print(f"[!] Synthesis failed: {e}")
-        return {"status": "error", "message": f"Synthesis failed: {str(e)}"}
+        return {"status": "error", "message": "Synthesis failed due to an internal error."}

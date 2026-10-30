@@ -53,4 +53,5 @@ async def update_apply(
         else:
             return {"status": "error", "success": False, "error": updater.last_error or "Failed to trigger update."}
     except Exception as e:
-        return {"status": "error", "success": False, "error": str(e)}
+        print(f"[!] Update execution failed: {e}")
+        return {"status": "error", "success": False, "error": "Failed to apply update"}

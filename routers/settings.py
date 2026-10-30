@@ -94,7 +94,8 @@ async def set_author_name_setting(req: AuthorNameSetting):
             json.dump(cfg, f, indent=2)
         return {"status": "saved", "author_name": cfg["author_name"]}
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        print(f"[!] Failed to save author name: {e}")
+        return {"status": "error", "message": "Failed to save author name"}
 
 @router.get("/telemetry/settings")
 async def get_telemetry_settings():

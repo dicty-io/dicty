@@ -38,7 +38,31 @@ async def get_models():
 
 @router.get("/models/active")
 async def get_active_model():
-    return {"active_model": model_manager.get_active_model()}
+    return {
+        "active_model": model_manager.get_active_model(),
+        "active_text_model": model_manager.get_active_text_model(),
+    }
+
+@router.get("/models/active_text")
+async def get_active_text_model():
+    return {"active_text_model": model_manager.get_active_text_model()}
+
+@router.post("/models/active_text/{model_id:path}")
+async def set_active_text_model(model_id: str):
+    manager = ModelManager()
+    if not manager.is_model_downloaded(model_id):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model '{model_id}' is not installed. Please download it before setting as active."
+        )
+    manager.set_active_text_model(model_id)
+    try:
+        import local_llm
+        if local_llm.is_server_running():
+            local_llm.switch_model(model_id)
+    except Exception as e:
+        print(f"[*] Note switching local_llm: {e}")
+    return {"status": "success", "active_text_model": model_id}
 
 @router.post("/models/active/{model_id:path}")
 async def set_active_model(model_id: str):
