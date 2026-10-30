@@ -75,7 +75,7 @@ class TestHistoryReprocess(unittest.TestCase):
         with open(self.dummy_record["audio_file"], "w") as f:
             f.write("DUMMY AUDIO CONTENT")
 
-        with patch("dicty_engine.process_transcription", new_callable=AsyncMock) as mock_trans:
+        with patch("services.pipeline.process_transcription", new_callable=AsyncMock) as mock_trans:
             mock_trans.return_value = {"status": "success", "text": "New transcription"}
             resp = self.client.post(f"/history/reprocess/{self.test_id}", json={
                 "mode": "dictation",

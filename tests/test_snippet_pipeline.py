@@ -46,9 +46,9 @@ class SnippetPipelineTests(unittest.TestCase):
             return spoken
 
         correction = unittest.mock.AsyncMock(side_effect=self_correct) if self_correct else unittest.mock.AsyncMock()
-        with unittest.mock.patch.object(self.engine, "snippets_manager", self.store), \
+        with unittest.mock.patch("services.pipeline.snippets_manager", self.store), \
              unittest.mock.patch("dicty_engine.TranscribeService.transcribe", side_effect=mock_transcribe), \
-             unittest.mock.patch("dicty_engine.apply_self_correction", correction), \
+             unittest.mock.patch("services.pipeline.apply_self_correction", correction), \
              unittest.mock.patch("dicty_engine.dictation_metrics.record", return_value="test"):
             res = asyncio.run(self.engine.process_transcription(
                 audio_path=self.wav,

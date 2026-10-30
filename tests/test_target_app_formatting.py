@@ -111,7 +111,8 @@ class TestTargetAppGuidance(unittest.TestCase):
 
 class TestTargetAppRouteContract(unittest.TestCase):
     def test_transcribe_routes_accept_target_app_fields(self):
-        from dicty_engine import stop_recording, transcribe_uploaded_audio
+        from routers.recording import stop_recording
+        from routers.transcribe import transcribe_uploaded_audio
 
         for endpoint in (stop_recording, transcribe_uploaded_audio):
             params = inspect.signature(endpoint).parameters
