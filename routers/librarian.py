@@ -269,19 +269,9 @@ async def synthesize_librarian_docs(req: SynthesizeQueueRequest):
         # 1. Discover all available documentation in target directory / vault
         available_docs_list = []
         configured_vault = os.getenv("OBSIDIAN_VAULT_PATH", "")
-        # Treat user input as a relative path inside the configured vault.
-        # This prevents absolute paths from escaping the trusted root.
+        # Confine document discovery strictly to the trusted configured vault or docs directory
         if req.target_type == "obsidian" and configured_vault:
-            vault_root = os.path.realpath(configured_vault)
-            requested_subpath = (req.obsidian_path or "").strip().lstrip("/\\")
-            candidate_path = os.path.realpath(os.path.join(vault_root, requested_subpath)) if requested_subpath else vault_root
-            try:
-                if os.path.commonpath([vault_root, candidate_path]) == vault_root:
-                    doc_dir = candidate_path
-                else:
-                    doc_dir = vault_root
-            except (ValueError, OSError):
-                doc_dir = vault_root
+            doc_dir = os.path.realpath(configured_vault)
             obsidian_path = doc_dir
         else:
             doc_dir = os.path.realpath("docs")
