@@ -5,6 +5,7 @@ import local_corrections
 import local_llm
 import meeting_dialogue
 import os
+import re
 import shutil
 import snippet_service
 import style_rules
@@ -1098,8 +1099,9 @@ async def process_transcription(
     else:
         # Save to history
         record_id = existing_record_id or str(uuid.uuid4())
-        # Ensure record_id is a safe alphanumeric/UUID identifier without directory components
-        safe_record_id = re.sub(r'[^a-zA-Z0-9_\-]', '', str(record_id)) or str(uuid.uuid4())
+        # Ensure record_id is a strict safe identifier without directory components
+        record_id_str = str(record_id or "")
+        safe_record_id = record_id_str if re.fullmatch(r"[A-Za-z0-9_-]{1,128}", record_id_str) else str(uuid.uuid4())
         timestamp = datetime.now().astimezone().isoformat(timespec='seconds')
         history_root = os.path.realpath(HISTORY_DIR)
         def _history_dest(filename: str) -> str:
@@ -1200,12 +1202,9 @@ async def process_transcription(
         else:
             scrub_immediately = history_manager.get_retention_settings().get("scrub_audio_immediately", False)
             if scrub_immediately:
-                history_root = os.path.realpath(HISTORY_DIR)
+                for suffix in (".wav", "_mic.wav", "_sys.wav"):
                     target_file = _resolve_history_path(f"{safe_record_id}{suffix}")
                     if target_file and os.path.exists(target_file):
-                    if os.path.commonpath([history_root, target_file]) != history_root:
-                        continue
-                    if os.path.exists(target_file):
                         try:
                             os.remove(target_file)
                         except Exception:
