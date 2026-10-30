@@ -43,11 +43,19 @@ async def websocket_transcribe_tail(websocket: WebSocket):
         await websocket.close(code=1008, reason="Invalid file path")
         return
 
-    # Restrict to safe filename within allowed input directories to prevent path injection
-    safe_name = os.path.basename(wav_path)
-    if not safe_name or safe_name != wav_path.strip().lstrip("/\\"):
-        # If wav_path contained directory components, verify the safe filename only
-        pass
+    # Accept only a plain filename (no path separators or traversal components)
+    requested_name = wav_path.strip()
+    safe_name = os.path.basename(requested_name)
+    if (
+        not safe_name
+        or safe_name != requested_name
+        or safe_name in (".", "..")
+        or "/" in requested_name
+        or "\\" in requested_name
+    ):
+        await websocket.send_json({"status": "error", "message": "Invalid file path"})
+        await websocket.close(code=1008, reason="Invalid file path")
+        return
     
     allowed_dirs = [
         os.path.realpath(INPUT_DIR),
@@ -57,8 +65,11 @@ async def websocket_transcribe_tail(websocket: WebSocket):
     resolved_candidate = None
     for ad in allowed_dirs:
         cand = os.path.join(ad, safe_name)
-        if os.path.exists(cand):
-            resolved_candidate = cand
+        real_cand = os.path.realpath(cand)
+        if os.path.commonpath([ad, real_cand]) != ad:
+            continue
+        if os.path.exists(real_cand):
+            resolved_candidate = real_cand
             break
 
     if not resolved_candidate:
