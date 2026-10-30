@@ -139,8 +139,11 @@ async def synthesize_librarian_docs(req: SynthesizeQueueRequest):
     git_provider = req.git_provider or "github"
     github_token = req.github_token or os.getenv("GITHUB_TOKEN", "")
     github_repo = req.github_repo or os.getenv("GITHUB_REPO", "")
-    gitlab_host = req.gitlab_host or "https://gitlab.com"
-    gitlab_token = req.gitlab_token or os.getenv("GITLAB_TOKEN", "")
+    gitlab_host = (req.gitlab_host or "https://gitlab.com").rstrip("/")
+    if gitlab_host == "https://gitlab.com":
+        gitlab_token = req.gitlab_token or os.getenv("GITLAB_TOKEN", "")
+    else:
+        gitlab_token = req.gitlab_token or ""
     gitlab_repo = req.gitlab_repo or os.getenv("GITLAB_REPO", "")
     bitbucket_token = req.bitbucket_token or os.getenv("BITBUCKET_TOKEN", "")
     bitbucket_repo = req.bitbucket_repo or os.getenv("BITBUCKET_REPO", "")
@@ -281,9 +284,11 @@ async def synthesize_librarian_docs(req: SynthesizeQueueRequest):
         target_path = None
         current_content = None
         if req.target_file and req.target_file not in ["docs/ARCHITECTURE.md", "ARCHITECTURE.md"]:
-            target_path = req.target_file
+            safe_basename = os.path.basename(req.target_file)
             if req.target_type == "obsidian" and obsidian_path:
-                target_path = os.path.join(obsidian_path, os.path.basename(req.target_file))
+                target_path = os.path.join(obsidian_path, safe_basename)
+            else:
+                target_path = os.path.join("docs", safe_basename)
             if os.path.exists(target_path):
                 try:
                     with open(target_path, "r", encoding="utf-8", errors="replace") as f:

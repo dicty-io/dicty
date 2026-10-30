@@ -85,9 +85,6 @@ async def approve_pending_update(pending_id: str, req: Request):
         title = item.get("title", "ARCHITECTURE.md")
         
         if target_type == "notion":
-            import importlib
-            import notion_service
-            importlib.reload(notion_service)
             from notion_service import NotionService
             notion_api_key = data.get("notion_api_key") or os.getenv("NOTION_API_KEY", "")
             parent_page_id = item.get("confluence_url") or data.get("notion_page_id") or os.getenv("NOTION_PAGE_ID", "")
@@ -185,9 +182,6 @@ async def proxy_reupload_history_update(history_id: str, req: Request):
         title = item.get("title", "ARCHITECTURE.md")
         
         if target_type == "notion":
-            import importlib
-            import notion_service
-            importlib.reload(notion_service)
             from notion_service import NotionService
             notion_api_key = data.get("notion_api_key") or os.getenv("NOTION_API_KEY", "")
             parent_page_id = item.get("confluence_url") or data.get("notion_page_id") or os.getenv("NOTION_PAGE_ID", "")
@@ -213,15 +207,17 @@ async def proxy_reupload_history_update(history_id: str, req: Request):
                 
         elif target_type in ["obsidian", "local"]:
             target_path = item.get("page_id") or item.get("confluence_url")
-            if target_path:
-                try:
-                    parent_dir = os.path.dirname(os.path.abspath(target_path))
-                    if parent_dir:
-                        os.makedirs(parent_dir, exist_ok=True)
-                    with open(target_path, "w") as f:
-                        f.write(content)
-                except Exception as write_err:
-                    print(f"[!] Error writing re-uploaded content to {target_path}: {write_err}")
+            if not target_path:
+                raise HTTPException(status_code=400, detail="No destination file path specified for local/obsidian update.")
+            try:
+                parent_dir = os.path.dirname(os.path.abspath(target_path))
+                if parent_dir:
+                    os.makedirs(parent_dir, exist_ok=True)
+                with open(target_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+            except Exception as write_err:
+                print(f"[!] Error writing re-uploaded content to {target_path}: {write_err}")
+                raise HTTPException(status_code=500, detail=f"Failed to write re-uploaded file: {write_err}") from write_err
                     
         elif target_type == "confluence":
             from confluence_service import ConfluenceService

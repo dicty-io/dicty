@@ -46,6 +46,8 @@ async def export_diagnostics():
     except Exception:
         installed_models = []
 
+    from services.state import model_manager
+
     sys_info = {
         "timestamp": datetime.now().isoformat(),
         "platform": platform.system(),
@@ -53,7 +55,7 @@ async def export_diagnostics():
         "platform_version": platform.version(),
         "architecture": platform.machine(),
         "python_version": sys.version,
-        "active_model": active_model_id,
+        "active_model": model_manager.get_active_model(),
         "installed_models": installed_models,
         "server_port": 8075,
     }
@@ -86,7 +88,8 @@ async def export_diagnostics():
             except Exception:
                 pass
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create diagnostic zip: {e}")
+        print(f"[!] Failed to create diagnostic zip: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create diagnostic zip") from e
 
     # Copy directly to Downloads folder on user machine
     try:

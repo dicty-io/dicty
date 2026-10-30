@@ -26,7 +26,7 @@ setup:
 	@echo -e "$(BOLD)$(GREEN)[2/4] Setting up Python virtual environment and dependencies...$(RESET)"
 	@./scripts/setup_runner_env.sh
 	@echo -e "$(BOLD)$(GREEN)[3/4] Compiling / restoring local whisper.cpp binaries...$(RESET)"
-	@./compile_whisper.sh
+	@./scripts/compile_whisper.sh
 	@echo -e "$(BOLD)$(GREEN)[4/4] Building Swift client (DictyClient)...$(RESET)"
 	@./scripts/check_engine_endpoint.sh
 	@cd DictyClient && swift build
@@ -43,17 +43,17 @@ dev:
 		echo -e "$(CYAN)[*] Environment not initialized. Running 'make setup' first...$(RESET)"; \
 		$(MAKE) setup; \
 	fi
-	@./run_client.sh
+	@./scripts/run_client.sh
 
 ## test: Run complete test suite (backend Python tests + Swift client tests)
 test:
-	@chmod +x run_tests.sh
-	@./run_tests.sh
+	@chmod +x scripts/run_tests.sh
+	@./scripts/run_tests.sh
 
 ## test-backend: Run backend Python test suite only
 test-backend:
-	@chmod +x run_tests.sh
-	@./run_tests.sh --backend-only
+	@chmod +x scripts/run_tests.sh
+	@./scripts/run_tests.sh --backend-only
 
 ## test-swift: Run Swift client tests
 test-swift:
@@ -61,8 +61,8 @@ test-swift:
 
 ## whisper: Compile whisper.cpp binaries with Apple Silicon Metal acceleration
 whisper:
-	@chmod +x compile_whisper.sh
-	@./compile_whisper.sh
+	@chmod +x scripts/compile_whisper.sh
+	@./scripts/compile_whisper.sh
 
 ## build: Build Swift client in release mode
 build:

@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+import asyncio
 import os
 import uuid
 from pydantic import BaseModel
@@ -65,9 +66,13 @@ async def delete_tts_voice(req: Request):
         raise HTTPException(status_code=500, detail="TTS service not available")
     try:
         body = await req.json()
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="Invalid request body, expected JSON object")
         voice_id = body.get("voice_id", "")
         success = tts_service.delete_voice(voice_id)
         return {"status": "success" if success else "not_found", "voice_id": voice_id}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -77,7 +82,8 @@ async def speak_text(req: TTSRequest):
         raise HTTPException(status_code=500, detail="TTS service not initialized")
     try:
         from fastapi import Response
-        audio_wav = tts_service.synthesize(
+        audio_wav = await asyncio.to_thread(
+            tts_service.synthesize,
             text=req.text,
             voice=req.voice or "af_heart",
             blend_voice=req.blend_voice,

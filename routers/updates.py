@@ -7,12 +7,22 @@ from services.state import updater
 router = APIRouter()
 
 
+ALLOWED_UPDATE_REPOS = {
+    "dicty-io/dicty",
+    "vkazmin1/dicty",
+}
+
+
 @router.get("/update/check")
 async def update_check(
     current_version: str = "1.0.0",
     repo: Optional[str] = None,
     token: Optional[str] = None
 ):
+    if repo:
+        repo_clean = repo.strip().lower()
+        if repo_clean not in ALLOWED_UPDATE_REPOS:
+            raise HTTPException(status_code=400, detail="Invalid or unauthorized update repository")
     return updater.check_for_updates(current_version, repo=repo, token=token)
 
 @router.get("/update/progress")

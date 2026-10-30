@@ -10,6 +10,7 @@ import tempfile
 import time
 import uuid
 import wave
+import numpy as np
 from services.paths import AUDIO_PATH, DATA_DIR, INPUT_DIR
 from fastapi import File, Form, UploadFile, WebSocket, WebSocketDisconnect
 from transcribe_service import TranscribeService
@@ -293,9 +294,9 @@ async def transcribe_local_file(
     except Exception as e:
         print(f"[-] Failed to convert audio to wav: {e}")
         
+    original_model = None
     try:
         # Load specific model if requested and different from active
-        original_model = None
         if target_model and target_model != "":
             active_model = model_manager.get_active_model()
             if target_model != active_model:
@@ -386,11 +387,6 @@ async def transcribe_local_file(
                 import re
                 raw_text = re.sub(r'(?i)\b' + re.escape(v["word"]) + r'\b', v["replacement"], raw_text)
                 
-        # Restore original model if we swapped it
-        if original_model is not None:
-            print(f"[*] Restoring active model to {original_model}")
-            model_manager.set_active_model(original_model)
-            
         if not incognito_bool:
             record_id = str(uuid.uuid4())
             timestamp = datetime.now().isoformat()
@@ -429,6 +425,9 @@ async def transcribe_local_file(
         }
         
     finally:
+        if original_model is not None:
+            print(f"[*] Restoring active model to {original_model}")
+            model_manager.set_active_model(original_model)
         # Clean up
         if os.path.exists(temp_path):
             os.remove(temp_path)

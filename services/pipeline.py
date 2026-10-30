@@ -788,7 +788,6 @@ async def process_transcription(
         if dictation_format_style == "clean":
             print("[+] Applying Rule-Based parsing for 'clean' style (0ms)...")
             try:
-                from services import style_rules
                 raw_text = style_rules.apply_style(raw_text, "clean")
             except Exception as clean_err:
                 print(f"[!] Clean style rule failed: {clean_err}")

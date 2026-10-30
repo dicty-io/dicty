@@ -57,22 +57,50 @@ def get_prompts():
         get_info("dictation_book_system", get_dictation_book_system_prompt_default, get_dictation_book_system_prompt, "Refines voice dictation into publication-ready book text with proper paragraphs, dialogue quotes, and punctuation."),
         get_info("meeting_summary_system", get_meeting_summary_system_prompt_default, get_meeting_summary_system_prompt, "Used by the 'Generate Summary' button in History to explicitly summarize any past transcript.")
     ]
+KNOWN_PROMPT_KEYS = {
+    "reconcile_system",
+    "confluence_agent_system",
+    "obsidian_agent_system",
+    "hub_system",
+    "architecture_system",
+    "dictation_custom_system",
+    "dictation_message_system",
+    "dictation_email_system",
+    "dictation_note_system",
+    "dictation_meeting_system",
+    "dictation_book_system",
+    "meeting_summary_system",
+}
+
+
 @router.put("/prompts")
 def update_prompt(req: PromptUpdateRequest):
     import json
     import os
     from prompts import PROMPTS_FILE
+
+    if req.key not in KNOWN_PROMPT_KEYS:
+        raise HTTPException(status_code=400, detail=f"Unknown prompt key '{req.key}'")
+
     with prompts_lock:
         data = {}
         if os.path.exists(PROMPTS_FILE):
             try:
-                with open(PROMPTS_FILE, "r") as f:
+                with open(PROMPTS_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
-            except Exception:
-                pass
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=f"Cannot read prompts file: {exc}") from exc
         data[req.key] = req.value
-        with open(PROMPTS_FILE, "w") as f:
-            json.dump(data, f, indent=4)
+        tmp_path = f"{PROMPTS_FILE}.tmp"
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
+            os.replace(tmp_path, PROMPTS_FILE)
+        except Exception as exc:
+            if os.path.exists(tmp_path):
+                try: os.remove(tmp_path)
+                except Exception: pass
+            raise HTTPException(status_code=500, detail=f"Cannot write prompts file: {exc}") from exc
     return {"status": "success"}
 
 @router.delete("/prompts/{key}")
@@ -80,17 +108,29 @@ def delete_prompt(key: str):
     import json
     import os
     from prompts import PROMPTS_FILE
+
+    if key not in KNOWN_PROMPT_KEYS:
+        raise HTTPException(status_code=400, detail=f"Unknown prompt key '{key}'")
+
     with prompts_lock:
         if os.path.exists(PROMPTS_FILE):
             try:
-                with open(PROMPTS_FILE, "r") as f:
+                with open(PROMPTS_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                if key in data:
-                    del data[key]
-                    with open(PROMPTS_FILE, "w") as f:
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=f"Cannot read prompts file: {exc}") from exc
+            if key in data:
+                del data[key]
+                tmp_path = f"{PROMPTS_FILE}.tmp"
+                try:
+                    with open(tmp_path, "w", encoding="utf-8") as f:
                         json.dump(data, f, indent=4)
-            except Exception:
-                pass
+                    os.replace(tmp_path, PROMPTS_FILE)
+                except Exception as exc:
+                    if os.path.exists(tmp_path):
+                        try: os.remove(tmp_path)
+                        except Exception: pass
+                    raise HTTPException(status_code=500, detail=f"Cannot write prompts file: {exc}") from exc
     return {"status": "success"}
 
 class VocabularyItem(BaseModel):

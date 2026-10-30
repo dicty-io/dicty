@@ -122,7 +122,7 @@ struct ModeSettingsPayload: Codable {
 @MainActor
 final class ModesStore: ObservableObject {
     @Published private(set) var engineModes: [EngineMode] = []
-    @Published private(set) var capabilities: Capabilities?
+    @Published var capabilities: Capabilities?
     @Published private(set) var appRules: ModeAppRules = .empty
     @Published private(set) var automaticAppRules: Bool = true
     @Published private(set) var isBusy: Bool = false

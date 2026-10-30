@@ -223,13 +223,16 @@ class HistoryManager:
         return total_words, avg_s, avg_e, len(filtered)
 
     def clear_all(self):
-        data = self.get_all()
-        for r in data:
-            if os.path.exists(r.get("audio_file", "")):
-                try: os.remove(r["audio_file"])
-                except: pass
-        with open(paths.HISTORY_FILE, "w") as f:
-            json.dump([], f)
+        with self.lock:
+            data = self.get_all()
+            for r in data:
+                for track in ("audio_file", "audio_file_mic", "audio_file_sys"):
+                    path = r.get(track, "")
+                    if path and os.path.exists(path):
+                        try: os.remove(path)
+                        except Exception: pass
+            with open(paths.HISTORY_FILE, "w") as f:
+                json.dump([], f)
         return True
 
     def get_retention_settings(self):
@@ -291,19 +294,23 @@ class HistoryManager:
                 
                 if should_delete_record:
                     deleted_count += 1
-                    audio_file = r.get("audio_file", "")
-                    if audio_file and os.path.exists(audio_file):
-                        try: os.remove(audio_file)
-                        except Exception: pass
-                else:
-                    if scrub_past_audio and r.get("audio_file"):
-                        audio_file = r.get("audio_file")
-                        if os.path.exists(audio_file):
-                            try:
-                                os.remove(audio_file)
-                                scrubbed_audio_count += 1
+                    for track in ("audio_file", "audio_file_mic", "audio_file_sys"):
+                        audio_path = r.get(track, "")
+                        if audio_path and os.path.exists(audio_path):
+                            try: os.remove(audio_path)
                             except Exception: pass
-                        r["audio_file"] = ""
+                else:
+                    if scrub_past_audio:
+                        for track in ("audio_file", "audio_file_mic", "audio_file_sys"):
+                            audio_path = r.get(track, "")
+                            if audio_path and os.path.exists(audio_path):
+                                try:
+                                    os.remove(audio_path)
+                                    if track == "audio_file":
+                                        scrubbed_audio_count += 1
+                                except Exception: pass
+                            if track in r:
+                                r[track] = ""
                     kept_records.append(r)
                     
             if deleted_count > 0 or scrubbed_audio_count > 0:

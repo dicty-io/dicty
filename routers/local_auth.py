@@ -14,25 +14,13 @@ router = APIRouter()
 # =========================================================================
 _pending_oauth_tokens: Dict[str, Any] = {}
 
-@router.post("/auth/token")
-async def receive_local_auth_token(req: Request):
-    """
-    Receives JWT OAuth token from the browser (Google OAuth completion page)
-    or client via loopback HTTP to bypass browser protocol prompts.
-    """
-    try:
-        data = await req.json()
-        token = data.get("token", "").strip() if isinstance(data, dict) else ""
-        if token:
-            _pending_oauth_tokens["latest"] = {
-                "token": token,
-                "timestamp": time.time()
-            }
-            _dicty_logger.info("[*] Received OAuth token via local loopback endpoint.")
-            return {"status": "ok", "message": "Token received"}
-        return {"status": "error", "message": "Empty token"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+def set_pending_oauth_token(token: str):
+    if token:
+        _pending_oauth_tokens["latest"] = {
+            "token": token,
+            "timestamp": time.time()
+        }
+        _dicty_logger.info("[*] Recorded verified OAuth token for loopback handshake.")
 
 @router.get("/auth/pending_token")
 def get_pending_auth_token():
