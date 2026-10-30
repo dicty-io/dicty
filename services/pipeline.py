@@ -26,6 +26,13 @@ from services import whisper_server
 
 _LOCAL_PROVIDER_MARKERS = ("whisper-server", "whisper-cli", "faster-whisper", "openai-whisper", "VAD stream (local)")
 
+def _resolve_history_path(filename: str) -> str | None:
+    base_dir = os.path.realpath(HISTORY_DIR)
+    candidate = os.path.realpath(os.path.join(base_dir, filename))
+    if os.path.commonpath([base_dir, candidate]) != base_dir:
+        return None
+    return candidate
+
 def _is_cloud_provider(provider_label) -> bool:
     """Classify by the engine that actually ran (a cloud model can fall back to local, and vice versa)."""
     label = str(provider_label or "")
@@ -1187,8 +1194,8 @@ async def process_transcription(
             scrub_immediately = history_manager.get_retention_settings().get("scrub_audio_immediately", False)
             if scrub_immediately:
                 history_root = os.path.realpath(HISTORY_DIR)
-                for suffix in [".wav", "_mic.wav", "_sys.wav"]:
-                    target_file = os.path.realpath(os.path.join(history_root, f"{safe_record_id}{suffix}"))
+                    target_file = _resolve_history_path(f"{safe_record_id}{suffix}")
+                    if target_file and os.path.exists(target_file):
                     if os.path.commonpath([history_root, target_file]) != history_root:
                         continue
                     if os.path.exists(target_file):
