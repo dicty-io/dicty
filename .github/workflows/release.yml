@@ -40,10 +40,7 @@ concurrency:
 
 jobs:
   release:
-    runs-on: [self-hosted, macOS]
-    env:
-      RUNNER_TOOL_CACHE: /tmp/hostedtoolcache
-      AGENT_TOOLSDIRECTORY: /tmp/hostedtoolcache
+    runs-on: ubuntu-latest
     outputs:
       next_tag: ${{ steps.compute.outputs.next_tag }}
       build_windows: ${{ steps.compute.outputs.build_windows }}
@@ -150,10 +147,7 @@ jobs:
 
   build_mac:
     needs: release
-    runs-on: [self-hosted, macOS]
-    env:
-      RUNNER_TOOL_CACHE: /tmp/hostedtoolcache
-      AGENT_TOOLSDIRECTORY: /tmp/hostedtoolcache
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -291,7 +285,7 @@ jobs:
     needs: release
     if: needs.release.outputs.build_windows == 'true'
     timeout-minutes: 45
-    runs-on: [self-hosted, Windows]
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7

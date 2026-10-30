@@ -27,10 +27,7 @@ jobs:
     name: Backend & Swift Client Test Suite
     # Runs automatically on internal branches; requires maintainer "Approve and run" for outside forks
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
-    runs-on: [self-hosted, macOS]
-    env:
-      RUNNER_TOOL_CACHE: /tmp/hostedtoolcache
-      AGENT_TOOLSDIRECTORY: /tmp/hostedtoolcache
+    runs-on: macos-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v7
@@ -106,10 +103,7 @@ jobs:
   tests-quality-gate:
     name: Tests Quality Gate
     needs: test-and-verify
-    runs-on: [self-hosted, macOS]
-    env:
-      RUNNER_TOOL_CACHE: /tmp/hostedtoolcache
-      AGENT_TOOLSDIRECTORY: /tmp/hostedtoolcache
+    runs-on: ubuntu-latest
     steps:
       - name: Verify All Test Checks Passed
         run: |
