@@ -203,6 +203,11 @@ async def submit_token(data: TokenSubmit):
         plan_expires_at = decoded.get("planExpiresAt", decoded.get("plan_expires_at"))
 
     SecureAuthManager.save_session(token, email, is_pro, compute_balance, subscription_tier)
+    try:
+        from routers.local_auth import set_pending_oauth_token
+        set_pending_oauth_token(token)
+    except Exception:
+        pass
 
     return {
         "token": token,

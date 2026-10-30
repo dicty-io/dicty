@@ -326,16 +326,17 @@ final class ModesStore: ObservableObject {
     }
 
     func modeName(forModeId id: String) -> String {
-        if id == "dictation" || id == "general" || id == "raw" {
-            return "General Dictation"
-        }
         if let mode = engineModes.first(where: { $0.id == id }) {
             return mode.name
         }
+        // App rules can still point at the old client mode names until the
+        // engine rewrites them. Show something friendlier than the raw id.
         switch id {
+        case "dictation": return "General"
         case "meeting": return "Meeting"
-        case "focused_meeting", "focused-meeting": return "Focused meeting"
+        case "focused_meeting": return "Focused meeting"
         case "librarian": return "Librarian"
+        case "raw": return "General"
         default: return id.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
@@ -386,16 +387,16 @@ final class ModesStore: ObservableObject {
     // MARK: HTTP
 
     private func send(_ method: String, _ path: String, json: [String: Any]? = nil) async throws -> Data {
-        var bodyData: Data? = nil
+        let body = try json.map { try JSONSerialization.data(withJSONObject: $0) }
         var headers: [String: String] = [:]
-        if let json {
-            bodyData = try JSONSerialization.data(withJSONObject: json)
+        if json != nil {
             headers["Content-Type"] = "application/json"
         }
+        let normalizedPath = path.hasPrefix("/") ? path : "/" + path
         let request = EngineEndpoint.shared.request(
-            path,
+            normalizedPath,
             method: method,
-            body: bodyData,
+            body: body,
             headers: headers,
             timeout: 12
         )

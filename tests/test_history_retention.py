@@ -12,7 +12,8 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-import dicty_engine
+import dicty_engine  # noqa: F401
+from services import paths
 from fastapi.testclient import TestClient
 from dicty_engine import app, history_manager
 
@@ -35,11 +36,11 @@ class TestHistoryRetentionAndTagging(unittest.TestCase):
         }).encode("utf-8"))
         self.temp_settings_file.close()
 
-        self.orig_history_file = dicty_engine.HISTORY_FILE
-        self.orig_settings_file = dicty_engine.RETENTION_CONFIG_FILE
+        self.orig_history_file = paths.HISTORY_FILE
+        self.orig_settings_file = paths.RETENTION_CONFIG_FILE
 
-        dicty_engine.HISTORY_FILE = self.temp_history_file.name
-        dicty_engine.RETENTION_CONFIG_FILE = self.temp_settings_file.name
+        paths.HISTORY_FILE = self.temp_history_file.name
+        paths.RETENTION_CONFIG_FILE = self.temp_settings_file.name
 
         self.test_id = str(uuid.uuid4())
         self.audio_path = f"/tmp/test_retention_{self.test_id}.wav"
@@ -61,8 +62,8 @@ class TestHistoryRetentionAndTagging(unittest.TestCase):
         history_manager.add_record(self.dummy_record)
 
     def tearDown(self):
-        dicty_engine.HISTORY_FILE = self.orig_history_file
-        dicty_engine.RETENTION_CONFIG_FILE = self.orig_settings_file
+        paths.HISTORY_FILE = self.orig_history_file
+        paths.RETENTION_CONFIG_FILE = self.orig_settings_file
 
         if os.path.exists(self.temp_history_file.name):
             os.remove(self.temp_history_file.name)

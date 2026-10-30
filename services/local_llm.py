@@ -342,7 +342,7 @@ def switch_model(model_id: str) -> bool:
     # If server is running, restart with the new model
     if is_server_running():
         stop_server()
-        start_server()
+        return start_server()
     return True
 
 

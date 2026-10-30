@@ -11,7 +11,9 @@ from fastapi.testclient import TestClient
 
 from audio_recorder import AudioRecorder
 import dicty_engine
-from dicty_engine import app, mix_audio, SYSTEM_AUDIO_PATH, AUDIO_PATH
+from dicty_engine import app
+from services.audio import mix_audio
+from services.paths import SYSTEM_AUDIO_PATH, AUDIO_PATH
 
 class TestWasapiLoopbackRecording(unittest.TestCase):
     def setUp(self):
@@ -115,7 +117,7 @@ class TestWasapiLoopbackRecording(unittest.TestCase):
         dicty_engine.recorder.is_recording = True
         dicty_engine.recorder.recording_mode = "meeting"
 
-        with patch("dicty_engine.process_transcription", new_callable=AsyncMock) as mock_process:
+        with patch("services.pipeline.process_transcription", new_callable=AsyncMock) as mock_process:
             mock_process.return_value = {"text": "Speaker 1: Browser Zoom voice heard", "status": "ok"}
             
             # Stop meeting recording
@@ -141,7 +143,7 @@ class TestWasapiLoopbackRecording(unittest.TestCase):
         dicty_engine.recorder.is_recording = True
         dicty_engine.recorder.recording_mode = "meeting"
 
-        with patch("dicty_engine.process_transcription", new_callable=AsyncMock) as mock_process:
+        with patch("services.pipeline.process_transcription", new_callable=AsyncMock) as mock_process:
             mock_process.return_value = {"text": "Speaker 1: Browser Zoom voice heard", "status": "ok"}
             
             # Stop meeting recording with separation turned off
@@ -163,7 +165,7 @@ class TestWasapiLoopbackRecording(unittest.TestCase):
         dicty_engine.recorder.is_recording = True
         dicty_engine.recorder.recording_mode = "meeting"
 
-        with patch("dicty_engine.process_transcription", new_callable=AsyncMock) as mock_process:
+        with patch("services.pipeline.process_transcription", new_callable=AsyncMock) as mock_process:
             mock_process.return_value = {"text": "Speaker 2: Clean browser Zoom voice without mic", "status": "ok"}
             
             # Stop meeting recording with mic muted

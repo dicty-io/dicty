@@ -35,7 +35,7 @@ class SelfCorrectionRoutingTests(unittest.TestCase):
 
         correction = unittest.mock.AsyncMock(return_value=cloud_reply or spoken)
         with unittest.mock.patch("dicty_engine.TranscribeService.transcribe", side_effect=mock_transcribe), \
-             unittest.mock.patch("dicty_engine.apply_self_correction", correction), \
+             unittest.mock.patch("services.pipeline.apply_self_correction", correction), \
              unittest.mock.patch("dicty_engine.dictation_metrics.record", return_value="test"):
             res = asyncio.run(self.engine.process_transcription(
                 audio_path=self.wav,
@@ -78,7 +78,7 @@ class SelfCorrectionRoutingTests(unittest.TestCase):
             return "um the the report"
 
         with unittest.mock.patch("dicty_engine.TranscribeService.transcribe", side_effect=mock_transcribe), \
-             unittest.mock.patch("dicty_engine.apply_self_correction", side_effect=boom), \
+             unittest.mock.patch("services.pipeline.apply_self_correction", side_effect=boom), \
              unittest.mock.patch("dicty_engine.dictation_metrics.record", return_value="test"):
             res = asyncio.run(self.engine.process_transcription(
                 audio_path=self.wav,
@@ -102,7 +102,7 @@ class SelfCorrectionRoutingTests(unittest.TestCase):
 
         correction = unittest.mock.AsyncMock()
         with unittest.mock.patch("dicty_engine.TranscribeService.transcribe", side_effect=mock_transcribe), \
-             unittest.mock.patch("dicty_engine.apply_self_correction", correction), \
+             unittest.mock.patch("services.pipeline.apply_self_correction", correction), \
              unittest.mock.patch("dicty_engine.dictation_metrics.record", return_value="test"):
             res = asyncio.run(self.engine.process_transcription(
                 audio_path=self.wav,
