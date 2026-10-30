@@ -80,9 +80,9 @@ Dicty logs millisecond timing breakdowns directly to the unified macOS system lo
 # Stream live stop-to-paste latency metrics
 /usr/bin/log stream --predicate 'subsystem == "com.kazmin.dicty"' --style compact
 ```
-Or query historical performance breakdown directly via the local engine API:
+Or query recent performance metrics directly via the local engine API:
 ```bash
-curl http://127.0.0.1:8075/metrics/summary
+curl http://127.0.0.1:8075/metrics/recent
 ```
 
 ---
