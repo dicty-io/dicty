@@ -118,9 +118,6 @@ fi
     --add-data "models_config.json:." \
     --add-data "telemetry_config.json:." \
     --add-data ".env.example:.env" \
-    --add-data "compat_libs/pickletools.py:." \
-    --add-data "compat_libs/_compat_pickle.py:." \
-    --add-data "compat_libs/typing_extensions.py:." \
     dicty_engine.py
 
 echo "[+] Build complete! Standalone executable is located at dist/dicty_engine"
