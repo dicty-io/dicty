@@ -477,15 +477,20 @@ async def synthesize_librarian_docs(req: SynthesizeQueueRequest):
                 pass
 
             # Resolve target path strictly within doc_dir
-            safe_doc_name = os.path.basename(doc_filename)
-            candidate_target = target_path or os.path.realpath(os.path.join(doc_dir, safe_doc_name))
-            try:
-                if os.path.commonpath([doc_dir, candidate_target]) == doc_dir:
-                    final_target_path = candidate_target
-                else:
+            if target_path:
+                final_target_path = target_path
+                doc_filename = os.path.basename(target_path)
+            else:
+                safe_doc_name = os.path.basename(doc_filename)
+                candidate_target = os.path.realpath(os.path.join(doc_dir, safe_doc_name))
+                try:
+                    if os.path.commonpath([doc_dir, candidate_target]) == doc_dir:
+                        final_target_path = candidate_target
+                    else:
+                        final_target_path = os.path.realpath(os.path.join(doc_dir, safe_doc_name))
+                except (ValueError, OSError):
                     final_target_path = os.path.realpath(os.path.join(doc_dir, safe_doc_name))
-            except (ValueError, OSError):
-                final_target_path = os.path.realpath(os.path.join(doc_dir, safe_doc_name))
+                doc_filename = os.path.basename(final_target_path)
 
             # Read original content if file already existed
             real_original_content = ""
@@ -506,7 +511,7 @@ async def synthesize_librarian_docs(req: SynthesizeQueueRequest):
                 proposed_content=final_markdown,
                 page_id=final_target_path,
                 version=1,
-                confluence_url=obsidian_path if req.target_type == "obsidian" else final_target_path,
+                confluence_url=final_target_path,
                 space_key="",
                 target_type=req.target_type or "local",
                 action=doc_action

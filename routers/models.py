@@ -48,6 +48,9 @@ async def get_active_model():
 async def get_active_text_model():
     return {"active_text_model": model_manager.get_active_text_model()}
 
+_active_text_model_lock = asyncio.Lock()
+
+
 @router.post("/models/active_text/{model_id:path}")
 async def set_active_text_model(model_id: str):
     manager = ModelManager()
@@ -67,23 +70,24 @@ async def set_active_text_model(model_id: str):
             detail=f"Model '{model_id}' is not installed. Please download it before setting as active."
         )
 
-    manager.set_active_text_model(model_id)
-    if local_llm.is_server_running():
-        try:
-            switch_ok = await asyncio.to_thread(local_llm.switch_model, model_id)
-            if not switch_ok:
+    async with _active_text_model_lock:
+        manager.set_active_text_model(model_id)
+        if local_llm.is_server_running():
+            try:
+                switch_ok = await asyncio.to_thread(local_llm.switch_model, model_id)
+                if not switch_ok:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Failed to start local LLM server with model '{model_id}'."
+                    )
+            except HTTPException:
+                raise
+            except Exception as e:
+                print(f"[*] Note switching local_llm: {e}")
                 raise HTTPException(
                     status_code=500,
-                    detail=f"Failed to start local LLM server with model '{model_id}'."
+                    detail=f"Failed to switch local LLM server model: {e}"
                 )
-        except HTTPException:
-            raise
-        except Exception as e:
-            print(f"[*] Note switching local_llm: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to switch local LLM server model: {e}"
-            )
     return {"status": "success", "active_text_model": model_id}
 
 @router.post("/models/active/{model_id:path}")
