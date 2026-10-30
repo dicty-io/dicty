@@ -1101,7 +1101,14 @@ async def process_transcription(
         # Ensure record_id is a safe alphanumeric/UUID identifier without directory components
         safe_record_id = re.sub(r'[^a-zA-Z0-9_\-]', '', str(record_id)) or str(uuid.uuid4())
         timestamp = datetime.now().astimezone().isoformat(timespec='seconds')
-        dest_audio = os.path.join(HISTORY_DIR, f"{safe_record_id}.wav")
+        history_root = os.path.realpath(HISTORY_DIR)
+        def _history_dest(filename: str) -> str:
+            candidate = os.path.realpath(os.path.join(history_root, filename))
+            if os.path.commonpath([history_root, candidate]) != history_root:
+                raise ValueError("Invalid history destination path")
+            return candidate
+
+        dest_audio = _history_dest(f"{safe_record_id}.wav")
         playback_src = mixed_audio_path or audio_path
         if playback_src and os.path.exists(playback_src):
             src_name = os.path.basename(playback_src)
@@ -1120,7 +1127,7 @@ async def process_transcription(
         dest_sys = ""
         if is_separated_meeting:
             if mic_audio_path and os.path.exists(mic_audio_path):
-                dest_mic = os.path.join(HISTORY_DIR, f"{safe_record_id}_mic.wav")
+                dest_mic = _history_dest(f"{safe_record_id}_mic.wav")
                 mic_name = os.path.basename(mic_audio_path)
                 valid_mic = None
                 for ad in [os.path.realpath(HISTORY_DIR), os.path.realpath(INPUT_DIR), os.path.realpath(tempfile.gettempdir())]:
@@ -1131,7 +1138,7 @@ async def process_transcription(
                 if valid_mic and os.path.abspath(valid_mic) != os.path.abspath(dest_mic):
                     shutil.copy2(valid_mic, dest_mic)
             if audio_path and os.path.exists(audio_path):
-                dest_sys = os.path.join(HISTORY_DIR, f"{safe_record_id}_sys.wav")
+                dest_sys = _history_dest(f"{safe_record_id}_sys.wav")
                 sys_name = os.path.basename(audio_path)
                 valid_sys = None
                 for ad in [os.path.realpath(HISTORY_DIR), os.path.realpath(INPUT_DIR), os.path.realpath(tempfile.gettempdir())]:
