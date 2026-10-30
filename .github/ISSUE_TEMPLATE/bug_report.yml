@@ -1,0 +1,86 @@
+name: 🐛 Bug Report
+description: File a bug report to help us improve Dicty
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report an issue! Please provide as much detail as possible.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear and concise description of the bug.
+      placeholder: Tell us what went wrong...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this?
+      placeholder: |
+        1. Open Dicty
+        2. Press global hotkey (Fn Fn)
+        3. Dictate text into Cursor
+        4. See error...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - macOS 15 (Sequoia)
+        - macOS 14 (Sonoma)
+        - Windows 11
+        - Windows 10
+        - Other (specify below)
+    validations:
+      required: true
+
+  - type: input
+    id: chip
+    attributes:
+      label: Hardware / Chip Architecture
+      description: e.g. Apple Silicon M1 / M2 / M3 / M4, Intel x86_64, NVIDIA RTX GPU
+      placeholder: e.g. Apple M2 Max (32GB)
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: STT Model
+      description: e.g. base.en, small.en, large-v3-turbo, Deepgram cloud
+      placeholder: e.g. base.en (local Metal)
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Dicty Version
+      description: App version (from Settings -> About or git commit SHA)
+      placeholder: e.g. v1.1.2
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs
+      description: Please paste any console output or unified logs (`/usr/bin/log show --predicate 'subsystem == "com.kazmin.dicty"' --last 5m`).
+      render: shell
