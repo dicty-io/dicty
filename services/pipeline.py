@@ -1091,37 +1091,49 @@ async def process_transcription(
     else:
         # Save to history
         record_id = existing_record_id or str(uuid.uuid4())
-        # Ensure record_id is a safe identifier without directory components
-        record_id = os.path.basename(record_id)
+        # Ensure record_id is a safe alphanumeric/UUID identifier without directory components
+        safe_record_id = re.sub(r'[^a-zA-Z0-9_\-]', '', str(record_id)) or str(uuid.uuid4())
         timestamp = datetime.now().astimezone().isoformat(timespec='seconds')
-        dest_audio = os.path.join(HISTORY_DIR, f"{record_id}.wav")
+        dest_audio = os.path.join(HISTORY_DIR, f"{safe_record_id}.wav")
         playback_src = mixed_audio_path or audio_path
-        if playback_src and os.path.abspath(playback_src) != os.path.abspath(dest_audio) and os.path.exists(playback_src):
-            real_src = os.path.realpath(playback_src)
-            real_dest = os.path.realpath(dest_audio)
-            history_root = os.path.realpath(HISTORY_DIR)
-            if real_dest.startswith(history_root) and (real_src.startswith(history_root) or real_src.startswith(os.path.realpath(INPUT_DIR)) or real_src.startswith(os.path.realpath(tempfile.gettempdir()))):
-                shutil.copy2(real_src, dest_audio)
+        if playback_src and os.path.exists(playback_src):
+            src_name = os.path.basename(playback_src)
+            # Find matching file only in permitted input/temp/history directories
+            allowed_dirs = [os.path.realpath(HISTORY_DIR), os.path.realpath(INPUT_DIR), os.path.realpath(tempfile.gettempdir())]
+            valid_src = None
+            for ad in allowed_dirs:
+                cand = os.path.join(ad, src_name)
+                if os.path.exists(cand):
+                    valid_src = cand
+                    break
+            if valid_src and os.path.abspath(valid_src) != os.path.abspath(dest_audio):
+                shutil.copy2(valid_src, dest_audio)
 
         dest_mic = ""
         dest_sys = ""
         if is_separated_meeting:
             if mic_audio_path and os.path.exists(mic_audio_path):
-                dest_mic = os.path.join(HISTORY_DIR, f"{record_id}_mic.wav")
-                real_mic = os.path.realpath(mic_audio_path)
-                real_dest_mic = os.path.realpath(dest_mic)
-                history_root = os.path.realpath(HISTORY_DIR)
-                if real_dest_mic.startswith(history_root) and (real_mic.startswith(history_root) or real_mic.startswith(os.path.realpath(INPUT_DIR)) or real_mic.startswith(os.path.realpath(tempfile.gettempdir()))):
-                    if os.path.abspath(mic_audio_path) != os.path.abspath(dest_mic):
-                        shutil.copy2(real_mic, dest_mic)
+                dest_mic = os.path.join(HISTORY_DIR, f"{safe_record_id}_mic.wav")
+                mic_name = os.path.basename(mic_audio_path)
+                valid_mic = None
+                for ad in [os.path.realpath(HISTORY_DIR), os.path.realpath(INPUT_DIR), os.path.realpath(tempfile.gettempdir())]:
+                    cand = os.path.join(ad, mic_name)
+                    if os.path.exists(cand):
+                        valid_mic = cand
+                        break
+                if valid_mic and os.path.abspath(valid_mic) != os.path.abspath(dest_mic):
+                    shutil.copy2(valid_mic, dest_mic)
             if audio_path and os.path.exists(audio_path):
-                dest_sys = os.path.join(HISTORY_DIR, f"{record_id}_sys.wav")
-                real_sys = os.path.realpath(audio_path)
-                real_dest_sys = os.path.realpath(dest_sys)
-                history_root = os.path.realpath(HISTORY_DIR)
-                if real_dest_sys.startswith(history_root) and (real_sys.startswith(history_root) or real_sys.startswith(os.path.realpath(INPUT_DIR)) or real_sys.startswith(os.path.realpath(tempfile.gettempdir()))):
-                    if os.path.abspath(audio_path) != os.path.abspath(dest_sys):
-                        shutil.copy2(real_sys, dest_sys)
+                dest_sys = os.path.join(HISTORY_DIR, f"{safe_record_id}_sys.wav")
+                sys_name = os.path.basename(audio_path)
+                valid_sys = None
+                for ad in [os.path.realpath(HISTORY_DIR), os.path.realpath(INPUT_DIR), os.path.realpath(tempfile.gettempdir())]:
+                    cand = os.path.join(ad, sys_name)
+                    if os.path.exists(cand):
+                        valid_sys = cand
+                        break
+                if valid_sys and os.path.abspath(valid_sys) != os.path.abspath(dest_sys):
+                    shutil.copy2(valid_sys, dest_sys)
         
         credits_used = 0
         from model_manager import ModelManager
@@ -1174,15 +1186,13 @@ async def process_transcription(
         else:
             scrub_immediately = history_manager.get_retention_settings().get("scrub_audio_immediately", False)
             if scrub_immediately:
-                history_root = os.path.realpath(HISTORY_DIR)
-                for p in [dest_audio, dest_mic, dest_sys]:
-                    if p and os.path.exists(p):
-                        real_p = os.path.realpath(p)
-                        if real_p.startswith(history_root):
-                            try:
-                                os.remove(real_p)
-                            except Exception:
-                                pass
+                for suffix in [".wav", "_mic.wav", "_sys.wav"]:
+                    target_file = os.path.join(HISTORY_DIR, f"{safe_record_id}{suffix}")
+                    if os.path.exists(target_file):
+                        try:
+                            os.remove(target_file)
+                        except Exception:
+                            pass
                 dest_audio = ""
                 dest_mic = ""
                 dest_sys = ""

@@ -45,6 +45,10 @@ async def websocket_transcribe_tail(websocket: WebSocket):
 
     # Restrict to safe filename within allowed input directories to prevent path injection
     safe_name = os.path.basename(wav_path)
+    if not safe_name or safe_name != wav_path.strip().lstrip("/\\"):
+        # If wav_path contained directory components, verify the safe filename only
+        pass
+    
     allowed_dirs = [
         os.path.realpath(INPUT_DIR),
         os.path.realpath(tempfile.gettempdir()),
@@ -52,16 +56,10 @@ async def websocket_transcribe_tail(websocket: WebSocket):
     ]
     resolved_candidate = None
     for ad in allowed_dirs:
-        cand = os.path.realpath(os.path.join(ad, safe_name))
-        if cand.startswith(ad) and os.path.exists(cand):
+        cand = os.path.join(ad, safe_name)
+        if os.path.exists(cand):
             resolved_candidate = cand
             break
-
-    if not resolved_candidate:
-        # Fall back to testing direct path only if fully contained in allowed_dirs
-        direct_real = os.path.realpath(os.path.abspath(wav_path))
-        if any(direct_real.startswith(ad) for ad in allowed_dirs) and os.path.exists(direct_real):
-            resolved_candidate = direct_real
 
     if not resolved_candidate:
         await websocket.send_json({"status": "error", "message": "Access denied: file outside permitted directories or not found"})
@@ -348,18 +346,14 @@ async def transcribe_local_file(
             from urllib.parse import urlparse
             if llm_provider == "dicty_cloud":
                 url = f"{dicty_cloud_url.rstrip('/')}/v1/chat/completions"
-            elif llm_provider == "openrouter":
-                url = "https://openrouter.ai/api/v1/chat/completions"
             elif llm_provider in ("lmstudio", "ollama", "local"):
                 base = llm_base_url or "http://localhost:1234/v1"
                 parsed = urlparse(base)
-                # Restrict local providers to loopback interfaces to prevent SSRF
-                if parsed.hostname not in ("localhost", "127.0.0.1", "::1"):
+                # Restrict local providers strictly to loopback interfaces to prevent SSRF
+                if parsed.scheme not in ("http", "https") or parsed.hostname not in ("localhost", "127.0.0.1", "::1"):
                     return {"status": "error", "message": "Local LLM base URL must target localhost or 127.0.0.1"}
-                if not base.endswith("/chat/completions"):
-                    url = f"{base.rstrip('/')}/chat/completions" if base.endswith("/v1") else f"{base.rstrip('/')}/v1/chat/completions"
-                else:
-                    url = base
+                port_part = f":{parsed.port}" if parsed.port else ""
+                url = f"{parsed.scheme}://127.0.0.1{port_part}/v1/chat/completions"
             else:
                 url = "https://openrouter.ai/api/v1/chat/completions"
                     

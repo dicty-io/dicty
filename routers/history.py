@@ -87,7 +87,7 @@ async def summarize_history(
         import traceback
         traceback.print_exc()
         print(f"[!] Summarization error: {e}")
-        return {"status": "error", "message": f"Summarization failed: {e}"}
+        return {"status": "error", "message": "Summarization failed due to an internal error."}
     
     if creds > 0 and llm_provider == "dicty_cloud":
         auth.SecureAuthManager.deduct_balance(creds)
@@ -284,9 +284,7 @@ async def reprocess_history(record_id: str, req: ReprocessRequest):
                 elif "timeout" in err_str.lower() or "timed out" in err_str.lower():
                     clean_msg = "Request timed out waiting for LLM response."
                 else:
-                    clean_msg = err_str.split("For more information check:")[0].strip()
-                    if "Client error '" in clean_msg:
-                        clean_msg = clean_msg.split("' for url")[0].replace("Client error '", "")
+                    clean_msg = "Re-formatting failed due to an error processing with the LLM."
                 return {"status": "error", "message": clean_msg}
             finally:
                 set_status("Idle")
