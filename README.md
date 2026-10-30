@@ -162,7 +162,7 @@ shasum -a 256 -c Dicty.dmg.sha256
 
 Pre-built Windows installer packages are currently in development. Windows is supported in **beta by building from source**:
 
-1. Follow the **[Windows Build from Source](#windows-1)** steps below.
+1. Follow the **[Windows Build from Source](#windows)** steps below.
 2. For complete configuration, Tauri frontend commands, and NVIDIA CUDA acceleration setup, consult the **[Windows Setup Guide](docs/architecture/windows_how_to_run_locally.md)**.
 
 ---

@@ -18,7 +18,7 @@
 - [ ] Manual verification on macOS / Windows (describe below):
 
 ## Checklist
-- [ ] My code follows the guidelines in [CONTRIBUTING.md](CONTRIBUTING.md).
+- [ ] My code follows the guidelines in [CONTRIBUTING.md](https://github.com/dicty-io/dicty/blob/main/CONTRIBUTING.md).
 - [ ] I have commented my code where necessary, particularly in hard-to-understand areas.
 - [ ] I have added tests that prove my fix is effective or that my feature works.
 - [ ] No tool artifacts, secret keys, or unnecessary binaries are tracked.

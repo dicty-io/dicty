@@ -166,7 +166,7 @@ jobs:
             echo "[-] python-tests failed!"
             exit 1
           fi
-          if [ "${{ needs.test-and-verify.result }}" == "failure" ]; then
+          if [ "${{ needs.test-and-verify.result }}" != "success" ] && [ "${{ needs.test-and-verify.result }}" != "skipped" ]; then
             echo "[-] test-and-verify failed!"
             exit 1
           fi
