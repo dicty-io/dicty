@@ -3,6 +3,7 @@ import asyncio
 import cloud_streaming as cloud_streaming_mod
 import engine_auth
 import local_llm
+import numpy as np
 import os
 import snippet_service
 import sys

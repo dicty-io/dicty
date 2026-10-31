@@ -3,22 +3,11 @@ name: Automated Tests & Build Verification
 on:
   push:
     branches: [ main ]
-    paths-ignore:
-      - 'DictyClientTauri/**'
-      - 'scripts/windows/**'
-      - 'requirements-windows.txt'
-      - '*.bat'
-      - '*.ps1'
-      - '**.md'
   pull_request:
     branches: [ main ]
-    paths-ignore:
-      - 'DictyClientTauri/**'
-      - 'scripts/windows/**'
-      - 'requirements-windows.txt'
-      - '*.bat'
-      - '*.ps1'
-      - '**.md'
+  schedule:
+    # Nightly full sweep: catches toolchain drift and flaky Swift tests without blocking PRs.
+    - cron: '0 6 * * *'
   workflow_dispatch:
 
 permissions:
@@ -28,33 +17,75 @@ concurrency:
   group: tests-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+env:
+  # Bump together with the actionlint release used by the lint job.
+  ACTIONLINT_VERSION: '1.7.12'
+
 jobs:
   # =========================================================================
-  # 1. GITHUB-HOSTED PYTHON BACKEND TEST SUITE (Safe for outside forks)
+  # 0. CHANGE DETECTION
+  # Lets expensive platform jobs skip when nothing they build has changed,
+  # while the quality gate below always reports a result.
   # =========================================================================
-  python-tests:
-    name: Python Backend Tests (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-15]
-        python-version: ['3.12']
+  changes:
+    name: Detect Changed Areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tauri: ${{ steps.diff.outputs.tauri }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v7
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          python-version: ${{ matrix.python-version }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Detect Tauri Changed Paths
+        id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" != "pull_request" ] || [ -z "$BASE_REF" ]; then
+            echo "[*] Not a pull request: running the full matrix."
+            echo "tauri=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          FILES="$(git diff --name-only "origin/${BASE_REF}...HEAD")"
+          if echo "$FILES" | grep -qE '^(DictyClientTauri/|requirements-windows\.txt|scripts/windows/)'; then
+            echo "[*] Tauri/Windows files changed."
+            echo "tauri=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "[*] No Tauri/Windows files changed; skipping the Windows job."
+            echo "tauri=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # =========================================================================
+  # 1. BACKEND TEST SUITE
+  # Runs on every PR and push. macOS-only: the engine ships for macOS and
+  # Windows, and the suite imports audio/TTS services built for that stack.
+  # =========================================================================
+  python-tests:
+    name: Backend Tests
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
           cache: 'pip'
 
       - name: Install Dependencies
         run: |
           python3 -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install coverage
+          pip install -r requirements.txt coverage
 
       - name: Run Backend Unit Tests with Coverage
         run: |
@@ -62,6 +93,9 @@ jobs:
           ./scripts/check_engine_endpoint.sh
           python3 -m coverage run -m unittest discover -s tests -p "test_*.py" -v
           python3 -m coverage xml -o coverage.xml
+          # Ratchet this floor up as coverage improves; it exists to stop
+          # regressions, not to chase a target.
+          python3 -m coverage report --skip-covered --fail-under=50
 
       - name: Upload Coverage Reports to Codecov
         uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
@@ -72,107 +106,42 @@ jobs:
           fail_ci_if_error: false
 
   # =========================================================================
-  # 2. SELF-HOSTED MAC RUNNER TEST SUITE (Apple Silicon Metal & Swift Build)
+  # 2. SWIFT CLIENT RELEASE BUILD
+  # Compile gate for the macOS client. Runs on PRs so that Swift compile
+  # errors fail before merge instead of turning main red after merge.
   # =========================================================================
-  test-and-verify:
-    name: Backend & Swift Client Test Suite (macOS Apple Silicon)
-    # Runs only on pushes to main or manual workflow dispatch (skips on PRs for fast feedback)
-    if: github.repository == 'dicty-io/dicty' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+  swift-build:
+    name: Swift Client Release Build
     runs-on: macos-15
+    timeout-minutes: 45
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v7
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          python-version: '3.12'
-          cache: 'pip'
+          persist-credentials: false
 
-      - name: Set up Persistent Python Environment & Dependencies
-        run: |
-          chmod +x scripts/setup_runner_env.sh
-          ./scripts/setup_runner_env.sh
-
-      - name: Select Xcode Toolchain
-        run: |
-          CURRENT_XCODE="$(xcode-select -p 2>/dev/null || true)"
-          if [ -z "$CURRENT_XCODE" ] || [ "$CURRENT_XCODE" = "/Library/Developer/CommandLineTools" ] || [ ! -d "$CURRENT_XCODE" ]; then
-            for xcode_path in \
-                "/Applications/Xcode.app/Contents/Developer" \
-                $(ls -d /Applications/Xcode*.app/Contents/Developer 2>/dev/null | sort -V -r); do
-                if [ -d "$xcode_path" ]; then
-                    echo "[*] Selecting Xcode: $xcode_path"
-                    sudo xcode-select -s "$xcode_path" 2>/dev/null || true
-                    break
-                fi
-            done
-          fi
-          sudo -n xcodebuild -license accept 2>/dev/null || true
-          echo "[*] Active Xcode: $(xcode-select -p 2>/dev/null || echo 'none')"
-          xcodebuild -version 2>/dev/null || true
-          swift --version 2>&1 | head -n 1
-
-      - name: Run Backend Automated Test Suite
-        run: |
-          chmod +x scripts/run_tests.sh
-          ./scripts/run_tests.sh --backend-only
-
-      - name: Upload Coverage Reports to Codecov
-        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
-        continue-on-error: true
+      - name: Cache Swift Package Build
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage.xml
-          fail_ci_if_error: false
+          path: DictyClient/.build
+          key: swift-build-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            swift-build-${{ runner.os }}-
 
-      - name: Verify Swift Release Build
+      - name: Show Active Toolchain
         run: |
-          sudo -n xcodebuild -license accept 2>/dev/null || true
-          if [ -z "$DEVELOPER_DIR" ] || [ "$DEVELOPER_DIR" = "/Library/Developer/CommandLineTools" ]; then
-            CURRENT_XCODE="$(xcode-select -p 2>/dev/null || true)"
-            if [ -n "$CURRENT_XCODE" ] && [ "$CURRENT_XCODE" != "/Library/Developer/CommandLineTools" ] && [ -d "$CURRENT_XCODE" ]; then
-              export DEVELOPER_DIR="$CURRENT_XCODE"
-            else
-              for xcode_path in \
-                  "/Applications/Xcode.app/Contents/Developer" \
-                  $(ls -d /Applications/Xcode*.app/Contents/Developer 2>/dev/null | sort -V -r); do
-                  if [ -d "$xcode_path" ]; then
-                      export DEVELOPER_DIR="$xcode_path"
-                      break
-                  fi
-              done
-            fi
-            if [ -z "$DEVELOPER_DIR" ] || [ "$DEVELOPER_DIR" = "/Library/Developer/CommandLineTools" ]; then
-              if [ -z "$SDKROOT" ]; then
-                for sdk_path in \
-                    "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk" \
-                    "/Library/Developer/CommandLineTools/SDKs/MacOSX15.sdk" \
-                    "/Library/Developer/CommandLineTools/SDKs/MacOSX14.sdk" \
-                    "/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk" \
-                    "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk"; do
-                    if [ -d "$sdk_path" ]; then
-                        export SDKROOT="$sdk_path"
-                        echo "[*] Configured SDKROOT=$SDKROOT (CommandLineTools SDK fallback)"
-                        break
-                    fi
-                done
-              fi
-            fi
-          fi
-          cd DictyClient
-          SWIFT_CMD="swift"
-          if [ "$(sysctl -in hw.optional.arm64 2>/dev/null)" = "1" ]; then
-              SWIFT_CMD="arch -arm64 swift"
-          fi
-          BUILD_STATUS=0
-          $SWIFT_CMD build -c release || BUILD_STATUS=$?
-          if [ $BUILD_STATUS -eq 69 ]; then
-            echo "[!] NOTICE: Xcode license not accepted on runner (exit code 69). Skipping Swift release build verification."
-          elif [ $BUILD_STATUS -ne 0 ]; then
-            echo "[!] Swift release build failed with cached build graph. Cleaning .build and retrying..."
+          xcode-select -p
+          xcodebuild -version
+          swift --version
+
+      - name: Build Client (release)
+        working-directory: DictyClient
+        run: |
+          if ! swift build -c release; then
+            echo "[!] Release build failed with the restored build cache."
+            echo "[!] Clearing .build and retrying from scratch..."
             rm -rf .build
-            $SWIFT_CMD build -c release
+            swift build -c release
           fi
 
       - name: Validate App Bundle Packaging & Codesign Sealing
@@ -181,24 +150,277 @@ jobs:
           ./scripts/validate_app_bundle.sh
 
   # =========================================================================
-  # 3. TEST STATUS GATE
+  # 3. LINT & WORKFLOW CHECKS
+  # Deliberately narrow: catches undefined names, dead imports that hide
+  # NameErrors, and malformed workflow files. No style rules yet, so this
+  # gate does not churn on formatting preferences.
+  # =========================================================================
+  lint:
+    name: Lint & Workflow Checks
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+
+      - name: Install Ruff
+        run: pip install ruff
+
+      - name: Ruff (syntax errors and undefined names)
+        run: |
+          ruff check --select E9,F63,F7,F82 --output-format=github \
+            --exclude .venv --exclude .build --exclude bin .
+
+      - name: Install Actionlint
+        run: |
+          case "$(uname -m)" in
+            arm64|aarch64) ARCH=arm64 ;;
+            *)             ARCH=amd64 ;;
+          esac
+          BASE="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
+          TARBALL="actionlint_${ACTIONLINT_VERSION}_darwin_${ARCH}.tar.gz"
+          curl -fsSL -o actionlint.tar.gz "${BASE}/${TARBALL}"
+          curl -fsSL -o actionlint_checksums.txt "${BASE}/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
+          EXPECTED="$(grep " ${TARBALL}\$" actionlint_checksums.txt | cut -d' ' -f1)"
+          if [ -z "$EXPECTED" ]; then
+            echo "[-] No checksum published for ${TARBALL}."
+            exit 1
+          fi
+          echo "${EXPECTED}  actionlint.tar.gz" | shasum -a 256 -c -
+          tar xzf actionlint.tar.gz actionlint
+          ./actionlint --version
+
+      - name: Actionlint
+        run: ./actionlint -color .github/workflows/*.yml
+
+  # =========================================================================
+  # 4. TAURI CLIENT CHECKS (Windows)
+  # The Windows app is only packaged at release time, so without this job a
+  # broken frontend or Rust build is first discovered while cutting a release.
+  # Skipped on PRs that touch no Tauri or Windows files.
+  # =========================================================================
+  tauri-checks:
+    name: Tauri Client Checks (Windows)
+    needs: changes
+    if: needs.changes.outputs.tauri == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: DictyClientTauri
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'DictyClientTauri/package-lock.json'
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Type-check and Build Frontend
+        run: npm run build
+
+      - name: Cache Rust Build
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: DictyClientTauri/src-tauri
+
+      - name: Check Rust Compilation
+        run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+
+  # =========================================================================
+  # 5. SWIFT TEST SUITE (nightly / manual only)
+  # Kept off the PR path: the suite has a history of runner flakiness, and a
+  # flaky check would block contributors. A nightly run still surfaces real
+  # regressions and gives us evidence before it becomes a PR problem.
+  # =========================================================================
+  swift-tests:
+    name: Swift Test Suite (nightly)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Cache Swift Package Build
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: DictyClient/.build
+          key: swift-test-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            swift-test-${{ runner.os }}-
+
+      - name: Show Active Toolchain
+        run: |
+          xcode-select -p
+          xcodebuild -version
+          swift --version
+
+      - name: Run Swift Test Suite
+        run: make test-swift
+
+  # =========================================================================
+  # 6. DEPENDENCY REVIEW
+  # Blocks PRs that introduce a high-severity vulnerable dependency. Pairs
+  # with Dependabot, which only opens update PRs after the fact.
+  # =========================================================================
+  dependency-review:
+    name: Dependency Review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Review Dependency Changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: never
+
+  # =========================================================================
+  # 7. PACKAGING SMOKE TEST (nightly / manual only)
+  # Builds exactly what a release ships (whisper.cpp + PyInstaller bundle) so
+  # a broken spec or a missing native binary is found on a Tuesday night
+  # instead of while cutting a release.
+  # =========================================================================
+  packaging-smoke:
+    name: Packaging Smoke Test (nightly)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-15
+    timeout-minutes: 75
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Cache whisper.cpp Build
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: bin/whisper.cpp/build
+          key: whisper-${{ runner.os }}-${{ hashFiles('scripts/compile_whisper.sh') }}
+          restore-keys: |
+            whisper-${{ runner.os }}-
+
+      - name: Set up Persistent Python Environment & Dependencies
+        run: |
+          chmod +x scripts/setup_runner_env.sh
+          ./scripts/setup_runner_env.sh
+
+      - name: Compile whisper.cpp
+        run: |
+          chmod +x scripts/compile_whisper.sh
+          ./scripts/compile_whisper.sh
+
+      - name: Build Engine Bundle (PyInstaller)
+        run: ./.venv/bin/pyinstaller --noconfirm dicty_engine.spec
+
+      - name: Verify Bundle Contents
+        run: |
+          test -x dist/dicty_engine/dicty_engine || {
+            echo "[-] dist/dicty_engine/dicty_engine was not produced."
+            exit 1
+          }
+          for binary in bin/whisper-cli bin/whisper-server; do
+            test -x "dist/dicty_engine/$binary" || {
+              echo "[-] $binary is missing from the engine bundle."
+              exit 1
+            }
+          done
+          echo "[+] Engine bundle is complete: $(du -sh dist/dicty_engine | cut -f1)"
+
+  # =========================================================================
+  # 7. TEST STATUS GATE
+  # Always runs so the required check always reports a result, including when
+  # optional jobs are skipped (nightly-only suites, non-Tauri PRs).
   # =========================================================================
   tests-quality-gate:
     name: Tests Quality Gate
     if: always()
-    needs: [python-tests, test-and-verify]
+    needs: [changes, python-tests, swift-build, lint, tauri-checks, swift-tests, packaging-smoke, dependency-review]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Verify All Test Checks Passed
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          PYTHON_TESTS: ${{ needs.python-tests.result }}
+          SWIFT_BUILD: ${{ needs.swift-build.result }}
+          LINT: ${{ needs.lint.result }}
+          TAURI_CHECKS: ${{ needs.tauri-checks.result }}
+          SWIFT_TESTS: ${{ needs.swift-tests.result }}
+          PACKAGING_SMOKE: ${{ needs.packaging-smoke.result }}
+          DEPENDENCY_REVIEW: ${{ needs.dependency-review.result }}
         run: |
-          if [ "${{ needs.python-tests.result }}" != "success" ]; then
-            echo "[-] python-tests failed!"
+          echo "Change Detection:           $CHANGES"
+          echo "Backend Tests:              $PYTHON_TESTS"
+          echo "Swift Client Release Build: $SWIFT_BUILD"
+          echo "Lint & Workflow Checks:     $LINT"
+          echo "Tauri Client Checks:        $TAURI_CHECKS"
+          echo "Swift Test Suite (nightly): $SWIFT_TESTS"
+          echo "Packaging Smoke (nightly):  $PACKAGING_SMOKE"
+          echo "Dependency Review:          $DEPENDENCY_REVIEW"
+          echo ""
+
+          FAILED=0
+
+          # Always required.
+          for CHECK in "Change detection:$CHANGES" \
+                       "Backend tests:$PYTHON_TESTS" \
+                       "Swift client release build:$SWIFT_BUILD" \
+                       "Lint & workflow checks:$LINT"; do
+            NAME="${CHECK%%:*}"
+            RESULT="${CHECK##*:}"
+            if [ "$RESULT" != "success" ]; then
+              echo "[-] ${NAME} did not pass (result: ${RESULT})."
+              FAILED=1
+            fi
+          done
+
+          # Required when they run, allowed to be skipped.
+          for CHECK in "Tauri client checks:$TAURI_CHECKS" \
+                       "Swift test suite:$SWIFT_TESTS" \
+                       "Packaging smoke test:$PACKAGING_SMOKE" \
+                       "Dependency review:$DEPENDENCY_REVIEW"; do
+            NAME="${CHECK%%:*}"
+            RESULT="${CHECK##*:}"
+            case "$RESULT" in
+              success|skipped) ;;
+              *)
+                echo "[-] ${NAME} did not pass (result: ${RESULT})."
+                FAILED=1
+                ;;
+            esac
+          done
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo "=================================================================="
+            echo " ❌ REQUIRED CHECKS FAILED"
+            echo "=================================================================="
             exit 1
           fi
-          if [ "${{ needs.test-and-verify.result }}" != "success" ] && [ "${{ needs.test-and-verify.result }}" != "skipped" ]; then
-            echo "[-] test-and-verify failed!"
-            exit 1
-          fi
+
           echo "=================================================================="
           echo " ✅ ALL AUTOMATED TESTS & BUILDS PASSED!"
           echo "=================================================================="

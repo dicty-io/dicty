@@ -683,7 +683,7 @@ class ModelManager:
             else:
                 ext = ".gguf" if url.endswith(".gguf") else ".bin"
                 filename = f"ggml-{model_id}{ext}"
-            ext = os.path.splitext(filename)[1] or (".gguf" if url.endswith(".gguf") else ".bin")
+            ext = (os.path.splitext(filename)[1] or (".gguf" if url.endswith(".gguf") else ".bin")).lower()
             dest_path = os.path.realpath(os.path.join(MODELS_DIR, filename))
             if not dest_path.startswith(os.path.realpath(MODELS_DIR)):
                 print(f"[!] Invalid model path for model_id {model_id}")
