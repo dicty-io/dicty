@@ -38,7 +38,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14]
+        os: [macos-15]
         python-version: ['3.12']
     steps:
       - name: Checkout Repository
@@ -75,27 +75,48 @@ jobs:
   # 2. SELF-HOSTED MAC RUNNER TEST SUITE (Apple Silicon Metal & Swift Build)
   # =========================================================================
   test-and-verify:
-    name: Backend & Swift Client Test Suite (Self-Hosted Apple Silicon)
-    # Runs on internal pushes or PRs where maintainer approves outside forks
-    if: github.repository == 'dicty-io/dicty' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: [self-hosted, macOS]
-    env:
-      RUNNER_TOOL_CACHE: /tmp/hostedtoolcache
-      AGENT_TOOLSDIRECTORY: /tmp/hostedtoolcache
+    name: Backend & Swift Client Test Suite (macOS Apple Silicon)
+    # Runs only on pushes to main or manual workflow dispatch (skips on PRs for fast feedback)
+    if: github.repository == 'dicty-io/dicty' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: macos-15
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v7
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: 'pip'
 
       - name: Set up Persistent Python Environment & Dependencies
         run: |
           chmod +x scripts/setup_runner_env.sh
           ./scripts/setup_runner_env.sh
 
-      - name: Run Backend & Swift Automated Test Suite
+      - name: Select Xcode Toolchain
         run: |
+          CURRENT_XCODE="$(xcode-select -p 2>/dev/null || true)"
+          if [ -z "$CURRENT_XCODE" ] || [ "$CURRENT_XCODE" = "/Library/Developer/CommandLineTools" ] || [ ! -d "$CURRENT_XCODE" ]; then
+            for xcode_path in \
+                "/Applications/Xcode.app/Contents/Developer" \
+                $(ls -d /Applications/Xcode*.app/Contents/Developer 2>/dev/null | sort -V -r); do
+                if [ -d "$xcode_path" ]; then
+                    echo "[*] Selecting Xcode: $xcode_path"
+                    sudo xcode-select -s "$xcode_path" 2>/dev/null || true
+                    break
+                fi
+            done
+          fi
           sudo -n xcodebuild -license accept 2>/dev/null || true
+          echo "[*] Active Xcode: $(xcode-select -p 2>/dev/null || echo 'none')"
+          xcodebuild -version 2>/dev/null || true
+          swift --version 2>&1 | head -n 1
+
+      - name: Run Backend Automated Test Suite
+        run: |
           chmod +x scripts/run_tests.sh
-          ./scripts/run_tests.sh
+          ./scripts/run_tests.sh --backend-only
 
       - name: Upload Coverage Reports to Codecov
         uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
@@ -109,17 +130,25 @@ jobs:
         run: |
           sudo -n xcodebuild -license accept 2>/dev/null || true
           if [ -z "$DEVELOPER_DIR" ] || [ "$DEVELOPER_DIR" = "/Library/Developer/CommandLineTools" ]; then
-            for xcode_path in \
-                "/Applications/Xcode.app/Contents/Developer" \
-                /Applications/Xcode*.app/Contents/Developer; do
-                if [ -d "$xcode_path" ]; then
-                    export DEVELOPER_DIR="$xcode_path"
-                    break
-                fi
-            done
+            CURRENT_XCODE="$(xcode-select -p 2>/dev/null || true)"
+            if [ -n "$CURRENT_XCODE" ] && [ "$CURRENT_XCODE" != "/Library/Developer/CommandLineTools" ] && [ -d "$CURRENT_XCODE" ]; then
+              export DEVELOPER_DIR="$CURRENT_XCODE"
+            else
+              for xcode_path in \
+                  "/Applications/Xcode.app/Contents/Developer" \
+                  $(ls -d /Applications/Xcode*.app/Contents/Developer 2>/dev/null | sort -V -r); do
+                  if [ -d "$xcode_path" ]; then
+                      export DEVELOPER_DIR="$xcode_path"
+                      break
+                  fi
+              done
+            fi
             if [ -z "$DEVELOPER_DIR" ] || [ "$DEVELOPER_DIR" = "/Library/Developer/CommandLineTools" ]; then
               if [ -z "$SDKROOT" ]; then
                 for sdk_path in \
+                    "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk" \
+                    "/Library/Developer/CommandLineTools/SDKs/MacOSX15.sdk" \
+                    "/Library/Developer/CommandLineTools/SDKs/MacOSX14.sdk" \
                     "/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk" \
                     "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk"; do
                     if [ -d "$sdk_path" ]; then

@@ -14,6 +14,8 @@ APP_DIR="${DIST_DIR}/Dicty.app"
 DMG_ROOT="${DIST_DIR}/dmg_root"
 DMG_FILE="${DIST_DIR}/Dicty.dmg"
 
+export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
+
 # 1. Clean previous build artifacts
 echo "[*] Cleaning old build artifacts for a fresh release build..."
 rm -rf "${PROJECT_DIR}/build" "${PROJECT_DIR}/dist"
@@ -39,18 +41,27 @@ fi
 # 4. Build Swift UI Client in Release Mode
 echo "[*] Building Swift UI Client (Release Mode)..."
 if [ -z "$DEVELOPER_DIR" ] || [ "$DEVELOPER_DIR" = "/Library/Developer/CommandLineTools" ]; then
-    for xcode_path in \
-        "/Applications/Xcode.app/Contents/Developer" \
-        /Applications/Xcode*.app/Contents/Developer; do
-        if [ -d "$xcode_path" ]; then
-            export DEVELOPER_DIR="$xcode_path"
-            echo "[*] Configured DEVELOPER_DIR=$DEVELOPER_DIR"
-            break
-        fi
-    done
+    CURRENT_XCODE="$(xcode-select -p 2>/dev/null || true)"
+    if [ -n "$CURRENT_XCODE" ] && [ "$CURRENT_XCODE" != "/Library/Developer/CommandLineTools" ] && [ -d "$CURRENT_XCODE" ]; then
+        export DEVELOPER_DIR="$CURRENT_XCODE"
+        echo "[*] Using active Xcode toolchain: DEVELOPER_DIR=$DEVELOPER_DIR"
+    else
+        for xcode_path in \
+            "/Applications/Xcode.app/Contents/Developer" \
+            $(ls -d /Applications/Xcode*.app/Contents/Developer 2>/dev/null | sort -V -r); do
+            if [ -d "$xcode_path" ]; then
+                export DEVELOPER_DIR="$xcode_path"
+                echo "[*] Selected Xcode toolchain: DEVELOPER_DIR=$DEVELOPER_DIR"
+                break
+            fi
+        done
+    fi
     if [ -z "$DEVELOPER_DIR" ] || [ "$DEVELOPER_DIR" = "/Library/Developer/CommandLineTools" ]; then
         if [ -z "$SDKROOT" ]; then
             for sdk_path in \
+                "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk" \
+                "/Library/Developer/CommandLineTools/SDKs/MacOSX15.sdk" \
+                "/Library/Developer/CommandLineTools/SDKs/MacOSX14.sdk" \
                 "/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk" \
                 "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk"; do
                 if [ -d "$sdk_path" ]; then
@@ -200,24 +211,53 @@ if [ -f "DictyClient/Dicty.entitlements" ]; then
     ENTITLEMENTS_ARG="--entitlements DictyClient/Dicty.entitlements"
 fi
 
+# --- Verify minimum deployment target for bundled Mach-O binaries ---
+echo "[*] Verifying minimum macOS deployment target for bundled Mach-O binaries..."
+find "${APP_DIR}/Contents" -type f \( -name "*.dylib" -o -name "*.so" -o -perm -111 \) -print0 |
+while IFS= read -r -d '' f; do
+    if file "$f" | grep -q "Mach-O"; then
+        MIN_OS=$(otool -l "$f" 2>/dev/null | awk '$1=="minos"{print $2}')
+        if [ -n "$MIN_OS" ]; then
+            MAJOR_VER=$(echo "$MIN_OS" | cut -d. -f1)
+            if [ "$MAJOR_VER" -gt 14 ]; then
+                echo "[!] Warning: Mach-O $f has minos $MIN_OS (exceeds macOS 14.0 target)"
+            fi
+        fi
+    fi
+done
+
 # --- Release path: Apple Developer ID (required for Gatekeeper-friendly public releases) ---
 # Set DEVELOPER_ID_APPLICATION="Developer ID Application: Your Name (TEAMID)"
 if [ -n "${DEVELOPER_ID_APPLICATION}" ]; then
+    echo "[*] Checking Developer ID identity in keychain: ${DEVELOPER_ID_APPLICATION}"
+    FIND_ARGS=("-v" "-p" "codesigning")
+    if [ -n "${KEYCHAIN_PATH}" ] && [ -f "${KEYCHAIN_PATH}" ]; then
+        FIND_ARGS+=("${KEYCHAIN_PATH}")
+    fi
+    if ! security find-identity "${FIND_ARGS[@]}" 2>/dev/null | grep -q "${DEVELOPER_ID_APPLICATION}"; then
+        echo "[-] Error: DEVELOPER_ID_APPLICATION is set ('${DEVELOPER_ID_APPLICATION}'), but matching certificate is not present in keychain (${KEYCHAIN_PATH:-system search list})."
+        exit 1
+    fi
+
     echo "[*] Signing with Developer ID: ${DEVELOPER_ID_APPLICATION}"
     # Notarization requires every nested Mach-O to be signed individually (inside-out),
     # with hardened runtime and a secure timestamp. --deep alone is not sufficient.
+    SIGN_ARGS=("--force" "--timestamp" "--options" "runtime")
+    if [ -n "${KEYCHAIN_PATH}" ] && [ -f "${KEYCHAIN_PATH}" ]; then
+        SIGN_ARGS+=("--keychain" "${KEYCHAIN_PATH}")
+    fi
     find "${APP_DIR}/Contents" -type f \( -name "*.dylib" -o -name "*.so" -o -perm -111 \) -print0 |
     while IFS= read -r -d '' f; do
         if file "$f" | grep -q "Mach-O"; then
-            codesign --force --timestamp --options runtime ${ENTITLEMENTS_ARG} --sign "${DEVELOPER_ID_APPLICATION}" "$f"
+            codesign "${SIGN_ARGS[@]}" ${ENTITLEMENTS_ARG} --sign "${DEVELOPER_ID_APPLICATION}" "$f"
         fi
     done
-    codesign --force --timestamp --options runtime ${ENTITLEMENTS_ARG} --sign "${DEVELOPER_ID_APPLICATION}" "${APP_DIR}"
+    codesign "${SIGN_ARGS[@]}" ${ENTITLEMENTS_ARG} --sign "${DEVELOPER_ID_APPLICATION}" "${APP_DIR}"
     codesign --verify --strict --verbose=2 "${APP_DIR}"
     DICTY_SIGNED_WITH_DEVELOPER_ID=1
 else
     # --- Local / open-source build: ad-hoc signing ---
-    echo "[*] DEVELOPER_ID_APPLICATION not set: signing Dicty.app ad-hoc (codesign --sign -)..."
+    echo "[*] Signing Dicty.app ad-hoc (codesign --sign -)..."
     codesign --force --deep --options runtime ${ENTITLEMENTS_ARG} --sign - "${APP_DIR}"
 fi
 
@@ -406,7 +446,11 @@ rm -rf "$TEMP_DMG" "$DMG_ROOT"
 # Credentials: either NOTARY_KEYCHAIN_PROFILE (from `xcrun notarytool store-credentials`)
 # or APPLE_ID + APPLE_TEAM_ID + APPLE_APP_PASSWORD (app-specific password).
 if [ "${DICTY_SIGNED_WITH_DEVELOPER_ID:-0}" = "1" ]; then
-    codesign --force --timestamp --sign "${DEVELOPER_ID_APPLICATION}" "$DMG_FILE"
+    DMG_SIGN_ARGS=("--force" "--timestamp")
+    if [ -n "${KEYCHAIN_PATH}" ] && [ -f "${KEYCHAIN_PATH}" ]; then
+        DMG_SIGN_ARGS+=("--keychain" "${KEYCHAIN_PATH}")
+    fi
+    codesign "${DMG_SIGN_ARGS[@]}" --sign "${DEVELOPER_ID_APPLICATION}" "$DMG_FILE"
     NOTARY_ARGS=""
     if [ -n "${NOTARY_KEYCHAIN_PROFILE}" ]; then
         NOTARY_ARGS="--keychain-profile ${NOTARY_KEYCHAIN_PROFILE}"

@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
-import AVFoundation
+@preconcurrency import AVFoundation
 
 struct CloudConfig {
     static var baseURL: String {
