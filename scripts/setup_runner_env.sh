@@ -35,9 +35,20 @@ elif command -v md5sum &>/dev/null; then
 fi
 
 HASH_FILE="$PERSISTENT_VENV/.dicty_req_hash"
-PYTHON_BIN="python3"
-if command -v python3.12 &>/dev/null; then
-    PYTHON_BIN="python3.12"
+
+PYTHON_BIN=""
+for candidate in python3.13 python3.12 python3; do
+    if command -v "$candidate" &>/dev/null; then
+        if "$candidate" -c "import sys; sys.exit(0 if (3, 12) <= sys.version_info < (3, 14) else 1)" 2>/dev/null; then
+            PYTHON_BIN="$candidate"
+            break
+        fi
+    fi
+done
+
+if [ -z "$PYTHON_BIN" ]; then
+    echo "[-] Error: Dicty dependencies require Python 3.12 or 3.13 (found $(python3 --version 2>&1)). Please install Python 3.12."
+    exit 1
 fi
 
 if [ ! -d "$PERSISTENT_VENV" ] || [ ! -f "$PERSISTENT_VENV/bin/python3" ]; then
@@ -45,8 +56,8 @@ if [ ! -d "$PERSISTENT_VENV" ] || [ ! -f "$PERSISTENT_VENV/bin/python3" ]; then
     rm -rf "$PERSISTENT_VENV"
     "$PYTHON_BIN" -m venv "$PERSISTENT_VENV"
     NEEDS_INSTALL=1
-elif ! "$PERSISTENT_VENV/bin/python3" -c "import sys; sys.exit(0 if (3, 10) <= sys.version_info < (3, 14) else 1)" 2>/dev/null; then
-    echo "[!] Python version in $PERSISTENT_VENV incompatible (<3.10 or >=3.14). Recreating with $PYTHON_BIN..."
+elif ! "$PERSISTENT_VENV/bin/python3" -c "import sys; sys.exit(0 if (3, 12) <= sys.version_info < (3, 14) else 1)" 2>/dev/null; then
+    echo "[!] Python version in $PERSISTENT_VENV incompatible (<3.12 or >=3.14). Recreating with $PYTHON_BIN..."
     rm -rf "$PERSISTENT_VENV"
     "$PYTHON_BIN" -m venv "$PERSISTENT_VENV"
     NEEDS_INSTALL=1
