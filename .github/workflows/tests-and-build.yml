@@ -37,6 +37,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Detect Tauri Changed Paths
@@ -72,6 +73,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Set up Python 3.12
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
@@ -114,6 +117,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Cache Swift Package Build
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -157,6 +162,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Set up Python 3.12
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
@@ -177,8 +184,16 @@ jobs:
             arm64|aarch64) ARCH=arm64 ;;
             *)             ARCH=amd64 ;;
           esac
-          curl -sSL -o actionlint.tar.gz \
-            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_darwin_${ARCH}.tar.gz"
+          BASE="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
+          TARBALL="actionlint_${ACTIONLINT_VERSION}_darwin_${ARCH}.tar.gz"
+          curl -fsSL -o actionlint.tar.gz "${BASE}/${TARBALL}"
+          curl -fsSL -o actionlint_checksums.txt "${BASE}/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
+          EXPECTED="$(grep " ${TARBALL}\$" actionlint_checksums.txt | cut -d' ' -f1)"
+          if [ -z "$EXPECTED" ]; then
+            echo "[-] No checksum published for ${TARBALL}."
+            exit 1
+          fi
+          echo "${EXPECTED}  actionlint.tar.gz" | shasum -a 256 -c -
           tar xzf actionlint.tar.gz actionlint
           ./actionlint --version
 
@@ -203,6 +218,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -218,7 +235,7 @@ jobs:
         run: npm run build
 
       - name: Cache Rust Build
-        uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: DictyClientTauri/src-tauri
 
@@ -239,6 +256,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Cache Swift Package Build
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -270,6 +289,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Review Dependency Changes
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
@@ -291,6 +312,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Cache whisper.cpp Build
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -335,12 +358,13 @@ jobs:
   tests-quality-gate:
     name: Tests Quality Gate
     if: always()
-    needs: [python-tests, swift-build, lint, tauri-checks, swift-tests, packaging-smoke, dependency-review]
+    needs: [changes, python-tests, swift-build, lint, tauri-checks, swift-tests, packaging-smoke, dependency-review]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Verify All Test Checks Passed
         env:
+          CHANGES: ${{ needs.changes.result }}
           PYTHON_TESTS: ${{ needs.python-tests.result }}
           SWIFT_BUILD: ${{ needs.swift-build.result }}
           LINT: ${{ needs.lint.result }}
@@ -349,6 +373,7 @@ jobs:
           PACKAGING_SMOKE: ${{ needs.packaging-smoke.result }}
           DEPENDENCY_REVIEW: ${{ needs.dependency-review.result }}
         run: |
+          echo "Change Detection:           $CHANGES"
           echo "Backend Tests:              $PYTHON_TESTS"
           echo "Swift Client Release Build: $SWIFT_BUILD"
           echo "Lint & Workflow Checks:     $LINT"
@@ -361,7 +386,8 @@ jobs:
           FAILED=0
 
           # Always required.
-          for CHECK in "Backend tests:$PYTHON_TESTS" \
+          for CHECK in "Change detection:$CHANGES" \
+                       "Backend tests:$PYTHON_TESTS" \
                        "Swift client release build:$SWIFT_BUILD" \
                        "Lint & workflow checks:$LINT"; do
             NAME="${CHECK%%:*}"

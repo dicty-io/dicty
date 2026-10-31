@@ -12,7 +12,10 @@ pipeline optimises for signal quality and PR feedback time rather than runner-mi
 | `tests-and-build.yml` | `pull_request`, `push` to `main`, nightly `schedule`, manual | Backend tests, Swift build, lint, Windows/Tauri checks, nightly suites |
 | `release.yml` | manual (`workflow_dispatch`) | Version bump, release notes, DMG / Windows installer, publish, Homebrew cask |
 | `release-drafter.yml` | `push` to `main`, `pull_request_target` | Draft release notes and version resolution |
-| `codeql.yml` | `pull_request`, `push` to `main`, weekly `schedule` | Static analysis for Python and TypeScript, results in the Security tab |
+
+Static analysis is provided by GitHub’s CodeQL **default setup** (Python, weekly, configured
+in the repository settings) rather than an in-repo workflow — a custom `codeql.yml` would
+conflict with default setup and fail to upload SARIF.
 
 ## `tests-and-build.yml` jobs
 
@@ -58,12 +61,13 @@ jobs never leaves a PR stuck on a pending check.
    by diffing the changed paths (shared backend paths trigger both platforms), creates the
    release **as a draft**, and computes the next version.
 2. **`build_mac`** — imports the Developer ID certificate, builds and signs the DMG,
-   notarizes and staples it, verifies the signature and Gatekeeper assessment, uploads the
-   DMG plus checksum, and bumps the Homebrew cask.
+   notarizes and staples it, verifies the signature and Gatekeeper assessment, and
+   uploads the DMG plus checksum.
 3. **`build_windows`** — packages the backend with PyInstaller and the Tauri installer,
    then uploads the `.exe` plus checksum.
 4. **`publish`** — only runs when every requested installer succeeded and the expected
-   assets are attached, then flips the draft to a published release.
+   assets are attached, flips the draft to a published release, and only then bumps the
+   Homebrew cask (so the tap never points at a draft DMG).
 
 Because the release stays a draft until the end, a failed build never produces a public
 release with missing assets. Re-running the workflow reuses the same draft.

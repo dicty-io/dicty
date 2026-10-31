@@ -64,6 +64,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Generate AI Release Notes
         env:
@@ -99,8 +100,8 @@ jobs:
           fi
 
           # Paths that ship in both the macOS and the Windows build.
-          SHARED='^(main\.py|dicty_engine\.py|dicty_engine\.spec|services/|routers/|integrations/|compat_libs/|assets/|requirements\.txt|requirements-desktop\.txt|models_config\.json|custom_prompts\.json|vocabulary\.json)'
-          MAC_ONLY='^(DictyClient/|make_dmg\.sh|build_mac\.sh|Casks/|scripts/compile_whisper\.sh|scripts/validate_app_bundle\.sh)'
+          SHARED='^(\.github/workflows/release\.yml|main\.py|dicty_engine\.py|dicty_engine\.spec|services/|routers/|integrations/|compat_libs/|assets/|requirements\.txt|requirements-desktop\.txt|models_config\.json|custom_prompts\.json|vocabulary\.json)'
+          MAC_ONLY='^(DictyClient/|make_dmg\.sh|build_mac\.sh|Casks/|scripts/setup_runner_env\.sh|scripts/compile_whisper\.sh|scripts/validate_app_bundle\.sh)'
           WIN_ONLY='^(DictyClientTauri/|scripts/windows/|requirements-windows\.txt)'
 
           mac_changed=true
@@ -108,14 +109,17 @@ jobs:
           if [ -n "$CHANGED" ]; then
             mac_changed=false
             windows_changed=false
-            if echo "$CHANGED" | grep -qE "$SHARED"; then
+            # Here-strings, not `echo | grep -q`: under `pipefail`, grep exiting
+            # on the first match can SIGPIPE the writer and make the whole
+            # pipeline fail, silently skipping a platform.
+            if grep -qE "$SHARED" <<< "$CHANGED"; then
               mac_changed=true
               windows_changed=true
             fi
-            if echo "$CHANGED" | grep -qE "$MAC_ONLY"; then
+            if grep -qE "$MAC_ONLY" <<< "$CHANGED"; then
               mac_changed=true
             fi
-            if echo "$CHANGED" | grep -qE "$WIN_ONLY"; then
+            if grep -qE "$WIN_ONLY" <<< "$CHANGED"; then
               windows_changed=true
             fi
           fi
@@ -145,7 +149,7 @@ jobs:
 
       - name: Compute next version & create draft release
         id: compute
-        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
           BUILD_MAC: ${{ steps.changes.outputs.build_mac }}
           BUILD_WINDOWS: ${{ steps.changes.outputs.build_windows }}
@@ -233,15 +237,21 @@ jobs:
               if (err.status !== 422) throw err;
 
               // Re-run on the same version: reuse the existing draft.
-              const existing = await github.rest.repos.getReleaseByTag({ owner, repo, tag: tagName });
-              if (!existing.data.draft) {
+              // `getReleaseByTag` does not return drafts, so look through the
+              // release list instead.
+              const all = await github.paginate(github.rest.repos.listReleases, {
+                owner, repo, per_page: 100
+              });
+              const existing = all.find(r => r.tag_name === tagName);
+              if (!existing) throw err;
+              if (!existing.draft) {
                 core.setFailed(`Release ${tagName} is already published. Use a new version instead of re-running this one.`);
                 return;
               }
               core.warning(`Draft ${tagName} already exists; updating its notes.`);
               await github.rest.repos.updateRelease({
                 owner, repo,
-                release_id: existing.data.id,
+                release_id: existing.id,
                 name: tagName,
                 body: notes
               });
@@ -269,6 +279,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Import Apple Developer ID Certificate (if configured)
         if: env.DEVELOPER_ID_CERTIFICATE_CONFIGURED == 'true'
@@ -323,6 +334,8 @@ jobs:
             release-swift-${{ runner.os }}-
 
       - name: Verify Signing Configuration
+        env:
+          DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
         run: |
           echo "[*] Certificate imported: ${DEVELOPER_ID_CERTIFICATE_CONFIGURED}"
           if [ "${DEVELOPER_ID_CERTIFICATE_CONFIGURED}" = "true" ] && [ -z "${DEVELOPER_ID_APPLICATION:-}" ]; then
@@ -333,7 +346,7 @@ jobs:
           if [ "${DEVELOPER_ID_CERTIFICATE_CONFIGURED}" = "true" ]; then
             echo "[*] Identities available for code signing:"
             security find-identity -v -p codesigning "${KEYCHAIN_PATH:-}" | sed 's/^/    /'
-            if ! security find-identity -v -p codesigning "${KEYCHAIN_PATH:-}" | grep -q "${DEVELOPER_ID_APPLICATION}"; then
+            if ! security find-identity -v -p codesigning "${KEYCHAIN_PATH:-}" | grep -qF "${DEVELOPER_ID_APPLICATION}"; then
               echo "[-] '${DEVELOPER_ID_APPLICATION}' is not present in the build keychain."
               exit 1
             fi
@@ -414,83 +427,6 @@ jobs:
             sleep 10
           done
 
-      - name: Bump Homebrew Cask in dicty-io/homebrew-dicty
-        continue-on-error: true
-        env:
-          TAP_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
-          VERSION: ${{ needs.release.outputs.next_tag }}
-        run: |
-          if [ -z "${TAP_TOKEN}" ]; then
-            echo "[!] PUBLIC_REPO_TOKEN is empty or not configured. Skipping Homebrew Cask bump."
-            exit 0
-          fi
-
-          export SHA256=$(shasum -a 256 dist/Dicty.dmg | awk '{print $1}')
-          echo "Bumping Homebrew Cask to version ${VERSION} with SHA256: ${SHA256}"
-
-          # Clone tap repository with retry mechanism
-          rm -rf tap_repo
-          CLONE_SUCCESS=false
-          MAX_RETRIES=5
-          for i in $(seq 1 $MAX_RETRIES); do
-            echo "[*] Cloning dicty-io/homebrew-dicty (attempt $i/$MAX_RETRIES)..."
-            if git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/dicty-io/homebrew-dicty.git" tap_repo; then
-              CLONE_SUCCESS=true
-              echo "[+] Successfully cloned homebrew-dicty!"
-              break
-            fi
-            echo "[!] Clone failed. Waiting 10s before retry..."
-            sleep 10
-          done
-
-          if [ "$CLONE_SUCCESS" != "true" ]; then
-            echo "[-] Failed to clone homebrew-dicty after $MAX_RETRIES attempts."
-            exit 1
-          fi
-
-          mkdir -p tap_repo/Casks
-
-          # Copy and update Cask definition
-          cp Casks/dicty.rb tap_repo/Casks/dicty.rb
-          python3 -c "
-          import os, re
-          v = os.environ['VERSION']
-          s = os.environ['SHA256']
-          with open('tap_repo/Casks/dicty.rb', 'r') as f:
-              content = f.read()
-          content = re.sub(r'version \".*\"', f'version \"{v}\"', content)
-          content = re.sub(r'sha256 \".*\"', f'sha256 \"{s}\"', content)
-          with open('tap_repo/Casks/dicty.rb', 'w') as f:
-              f.write(content)
-          "
-
-          cd tap_repo
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Casks/dicty.rb
-          if git diff --staged --quiet; then
-            echo "Cask is already up to date."
-          else
-            git commit -m "Bump dicty cask to v${VERSION}"
-            PUSH_SUCCESS=false
-            for i in $(seq 1 $MAX_RETRIES); do
-              echo "[*] Pushing updated cask (attempt $i/$MAX_RETRIES)..."
-              if git push origin HEAD; then
-                PUSH_SUCCESS=true
-                echo "[+] Successfully pushed updated cask to dicty-io/homebrew-dicty!"
-                break
-              fi
-              echo "[!] Push failed. Waiting 10s before retry..."
-              sleep 10
-            done
-            if [ "$PUSH_SUCCESS" != "true" ]; then
-              echo "[-] Failed to push updated cask after $MAX_RETRIES attempts."
-              exit 1
-            fi
-          fi
-          cd ..
-          rm -rf tap_repo
-
   build_windows:
     needs: release
     if: needs.release.outputs.build_windows == 'true'
@@ -501,6 +437,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
@@ -588,7 +525,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: release
+    env:
+      # `gh release ...` needs an explicit repository outside a checkout.
+      GH_REPO: ${{ github.repository }}
     steps:
+      - name: Checkout (for the Cask definition)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
       - name: Verify Requested Builds Succeeded
         env:
           TAG: v${{ needs.release.outputs.next_tag }}
@@ -653,4 +598,87 @@ jobs:
           gh release edit "$TAG" --draft=false --latest
           echo "[+] Published ${TAG}."
           gh release view "$TAG" --json url --jq .url
+
+      - name: Bump Homebrew Cask in dicty-io/homebrew-dicty
+        # Only a macOS release produces a DMG for the cask to point at.
+        if: needs.release.outputs.build_mac == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAP_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+          VERSION: ${{ needs.release.outputs.next_tag }}
+          TAG: v${{ needs.release.outputs.next_tag }}
+        run: |
+          if [ -z "${TAP_TOKEN}" ]; then
+            echo "[!] PUBLIC_REPO_TOKEN is empty or not configured. Skipping Homebrew Cask bump."
+            exit 0
+          fi
+
+          ASSET_DIR="$(mktemp -d)"
+          gh release download "$TAG" --pattern "Dicty.dmg.sha256" --dir "$ASSET_DIR" --clobber
+          export SHA256=$(awk '{print $1}' "$ASSET_DIR/Dicty.dmg.sha256")
+          echo "Bumping Homebrew Cask to version ${VERSION} with SHA256: ${SHA256}"
+
+          # Clone tap repository with retry mechanism
+          rm -rf tap_repo
+          CLONE_SUCCESS=false
+          MAX_RETRIES=5
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "[*] Cloning dicty-io/homebrew-dicty (attempt $i/$MAX_RETRIES)..."
+            if git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/dicty-io/homebrew-dicty.git" tap_repo; then
+              CLONE_SUCCESS=true
+              echo "[+] Successfully cloned homebrew-dicty!"
+              break
+            fi
+            echo "[!] Clone failed. Waiting 10s before retry..."
+            sleep 10
+          done
+
+          if [ "$CLONE_SUCCESS" != "true" ]; then
+            echo "[-] Failed to clone homebrew-dicty after $MAX_RETRIES attempts."
+            exit 1
+          fi
+
+          mkdir -p tap_repo/Casks
+
+          # Copy and update Cask definition
+          cp Casks/dicty.rb tap_repo/Casks/dicty.rb
+          python3 -c "
+          import os, re
+          v = os.environ['VERSION']
+          s = os.environ['SHA256']
+          with open('tap_repo/Casks/dicty.rb', 'r') as f:
+              content = f.read()
+          content = re.sub(r'version \".*\"', f'version \"{v}\"', content)
+          content = re.sub(r'sha256 \".*\"', f'sha256 \"{s}\"', content)
+          with open('tap_repo/Casks/dicty.rb', 'w') as f:
+              f.write(content)
+          "
+
+          cd tap_repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/dicty.rb
+          if git diff --staged --quiet; then
+            echo "Cask is already up to date."
+          else
+            git commit -m "Bump dicty cask to v${VERSION}"
+            PUSH_SUCCESS=false
+            for i in $(seq 1 $MAX_RETRIES); do
+              echo "[*] Pushing updated cask (attempt $i/$MAX_RETRIES)..."
+              if git push origin HEAD; then
+                PUSH_SUCCESS=true
+                echo "[+] Successfully pushed updated cask to dicty-io/homebrew-dicty!"
+                break
+              fi
+              echo "[!] Push failed. Waiting 10s before retry..."
+              sleep 10
+            done
+            if [ "$PUSH_SUCCESS" != "true" ]; then
+              echo "[-] Failed to push updated cask after $MAX_RETRIES attempts."
+              exit 1
+            fi
+          fi
+          cd ..
+          rm -rf tap_repo
 
