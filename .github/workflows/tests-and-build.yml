@@ -76,8 +76,8 @@ jobs:
   # =========================================================================
   test-and-verify:
     name: Backend & Swift Client Test Suite (macOS Apple Silicon)
-    # Runs on internal pushes or PRs where maintainer approves outside forks
-    if: github.repository == 'dicty-io/dicty' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository)
+    # Runs only on pushes to main or manual workflow dispatch (skips on PRs for fast feedback)
+    if: github.repository == 'dicty-io/dicty' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: macos-15
     steps:
       - name: Checkout Repository
