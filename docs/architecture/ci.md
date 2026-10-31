@@ -12,16 +12,18 @@ pipeline optimises for signal quality and PR feedback time rather than runner-mi
 | `tests-and-build.yml` | `pull_request`, `push` to `main`, nightly `schedule`, manual | Backend tests, Swift build, lint, Windows/Tauri checks, nightly suites |
 | `release.yml` | manual (`workflow_dispatch`) | Version bump, release notes, DMG / Windows installer, publish, Homebrew cask |
 | `release-drafter.yml` | `push` to `main`, `pull_request_target` | Draft release notes and version resolution |
+| `codeql.yml` | `pull_request`, `push` to `main`, weekly `schedule` | Static analysis for Python and TypeScript, results in the Security tab |
 
 ## `tests-and-build.yml` jobs
 
 | Job | Runs on | When | What it does |
 | --- | --- | --- | --- |
 | `changes` | `ubuntu-latest` | every run | Diffs the PR against its base to decide whether the Windows job is relevant |
-| `python-tests` | `macos-15` | every PR and push | `check_engine_endpoint.sh` guard, backend unit tests with coverage, Codecov upload |
+| `python-tests` | `macos-15` | every PR and push | `check_engine_endpoint.sh` guard, backend unit tests with a 50% coverage floor, Codecov upload |
 | `swift-build` | `macos-15` | every PR and push | `swift build -c release` with a cached `.build`, then `validate_app_bundle.sh` |
 | `lint` | `macos-15` | every PR and push | Ruff (`E9,F63,F7,F82`) and actionlint over `.github/workflows` |
 | `tauri-checks` | `windows-latest` | PRs touching Tauri/Windows files, plus push/nightly | `npm ci`, `npm run build` (tsc + vite), `cargo check --all-targets` |
+| `dependency-review` | `ubuntu-latest` | PRs | Fails a PR that introduces a high-severity vulnerable dependency |
 | `swift-tests` | `macos-15` | nightly cron and manual dispatch | `make test-swift` |
 | `packaging-smoke` | `macos-15` | nightly cron and manual dispatch | Compiles whisper.cpp and builds `dicty_engine.spec` with PyInstaller, asserts the bundle contents |
 | `tests-quality-gate` | `ubuntu-latest` | always | Fails the run unless the required jobs succeeded; always reports a status |
@@ -88,4 +90,10 @@ its central client module (`EngineEndpoint.swift`, `engine_http.rs`,
   slot for up to six hours.
 - Jobs that touch secrets must not run on `pull_request` from forks; GitHub does not pass
   secrets to those runs.
+- Third-party actions are pinned to full commit SHAs with the human-readable version in a
+  trailing comment. Bump both together (Dependabot handles this for `github-actions`).
+- `ACTIONLINT_VERSION` in `tests-and-build.yml` is bumped manually alongside the pinned
+  actionlint release.
+- The 50% coverage floor in `python-tests` is a ratchet: raise it when coverage improves,
+  never lower it to make a red build green.
 - Workflow changes must pass `actionlint`; `lint` enforces it in CI.

@@ -1,0 +1,48 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 7 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # Swift is intentionally omitted: CodeQL needs a full client build on
+        # every run and the client is already compile-gated by swift-build.
+        language: [python, javascript-typescript]
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@793b778da9c9275a0f276522b27cb5fc14bba279 # v4
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@793b778da9c9275a0f276522b27cb5fc14bba279 # v4
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@793b778da9c9275a0f276522b27cb5fc14bba279 # v4
+        with:
+          category: /language:${{ matrix.language }}
