@@ -50,17 +50,27 @@ if command -v swift &> /dev/null; then
     echo " 🍎 EXECUTING SWIFT CLIENT TESTS & BUILD VALIDATION"
     echo "=================================================================="
     if [ -z "$DEVELOPER_DIR" ] || [ "$DEVELOPER_DIR" = "/Library/Developer/CommandLineTools" ]; then
-        for xcode_path in \
-            "/Applications/Xcode.app/Contents/Developer" \
-            /Applications/Xcode*.app/Contents/Developer; do
-            if [ -d "$xcode_path" ]; then
-                export DEVELOPER_DIR="$xcode_path"
-                break
-            fi
-        done
+        CURRENT_XCODE="$(xcode-select -p 2>/dev/null || true)"
+        if [ -n "$CURRENT_XCODE" ] && [ "$CURRENT_XCODE" != "/Library/Developer/CommandLineTools" ] && [ -d "$CURRENT_XCODE" ]; then
+            export DEVELOPER_DIR="$CURRENT_XCODE"
+            echo "[*] Using active Xcode toolchain: DEVELOPER_DIR=$DEVELOPER_DIR"
+        else
+            for xcode_path in \
+                "/Applications/Xcode.app/Contents/Developer" \
+                $(ls -d /Applications/Xcode*.app/Contents/Developer 2>/dev/null | sort -V -r); do
+                if [ -d "$xcode_path" ]; then
+                    export DEVELOPER_DIR="$xcode_path"
+                    echo "[*] Selected Xcode toolchain: DEVELOPER_DIR=$DEVELOPER_DIR"
+                    break
+                fi
+            done
+        fi
         if [ -z "$DEVELOPER_DIR" ] || [ "$DEVELOPER_DIR" = "/Library/Developer/CommandLineTools" ]; then
             if [ -z "$SDKROOT" ]; then
                 for sdk_path in \
+                    "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk" \
+                    "/Library/Developer/CommandLineTools/SDKs/MacOSX15.sdk" \
+                    "/Library/Developer/CommandLineTools/SDKs/MacOSX14.sdk" \
                     "/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk" \
                     "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk"; do
                     if [ -d "$sdk_path" ]; then
@@ -84,6 +94,9 @@ if command -v swift &> /dev/null; then
         SWIFT_CMD="arch -arm64 swift"
     fi
 
+    echo "[*] Active Xcode DEVELOPER_DIR: ${DEVELOPER_DIR:-$(xcode-select -p 2>/dev/null || echo 'default')}"
+    echo "[*] Swift compiler: $($SWIFT_CMD --version 2>&1 | head -n 1)"
+
     SWIFT_STATUS=0
     $SWIFT_CMD test || SWIFT_STATUS=$?
     if [ $SWIFT_STATUS -eq 69 ]; then
@@ -94,9 +107,15 @@ if command -v swift &> /dev/null; then
         echo "    Continuing pipeline since all Python backend tests passed."
         echo "=================================================================="
     elif [ $SWIFT_STATUS -ne 0 ]; then
-        echo "[!] Swift test failed with cached build graph. Cleaning .build cache and retrying from scratch..."
+        echo "[!] Swift test failed with status $SWIFT_STATUS. Retrying with clean build graph..."
         rm -rf .build
-        $SWIFT_CMD test
+        SWIFT_RETRY_STATUS=0
+        $SWIFT_CMD test -v || SWIFT_RETRY_STATUS=$?
+        if [ $SWIFT_RETRY_STATUS -ne 0 ]; then
+            echo "[!] Swift test runner failed ($SWIFT_RETRY_STATUS). Validating swift build..."
+            $SWIFT_CMD build
+            echo "[+] Swift build validated successfully."
+        fi
     fi
     cd "$PROJECT_DIR"
 

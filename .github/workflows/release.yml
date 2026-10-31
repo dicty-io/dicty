@@ -185,6 +185,25 @@ jobs:
           chmod +x scripts/setup_runner_env.sh
           ./scripts/setup_runner_env.sh
 
+      - name: Select Xcode Toolchain
+        run: |
+          CURRENT_XCODE="$(xcode-select -p 2>/dev/null || true)"
+          if [ -z "$CURRENT_XCODE" ] || [ "$CURRENT_XCODE" = "/Library/Developer/CommandLineTools" ] || [ ! -d "$CURRENT_XCODE" ]; then
+            for xcode_path in \
+                "/Applications/Xcode.app/Contents/Developer" \
+                $(ls -d /Applications/Xcode*.app/Contents/Developer 2>/dev/null | sort -V -r); do
+                if [ -d "$xcode_path" ]; then
+                    echo "[*] Selecting Xcode: $xcode_path"
+                    sudo xcode-select -s "$xcode_path" 2>/dev/null || true
+                    break
+                fi
+            done
+          fi
+          sudo -n xcodebuild -license accept 2>/dev/null || true
+          echo "[*] Active Xcode: $(xcode-select -p 2>/dev/null || echo 'none')"
+          xcodebuild -version 2>/dev/null || true
+          swift --version 2>&1 | head -n 1
+
       - name: Build DMG
         env:
           MACOSX_DEPLOYMENT_TARGET: "14.0"
@@ -197,14 +216,6 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
-          sudo -n xcodebuild -license accept 2>/dev/null || true
-          if [ -z "$DEVELOPER_DIR" ] || [ "$DEVELOPER_DIR" = "/Library/Developer/CommandLineTools" ]; then
-            if [ -d "/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk" ]; then
-              export SDKROOT="/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk"
-            elif [ -d "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk" ]; then
-              export SDKROOT="/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk"
-            fi
-          fi
           ./make_dmg.sh
 
       - name: Compute Checksum and Upload DMG Release Assets
