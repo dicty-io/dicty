@@ -716,8 +716,9 @@ class AudioRecorder:
             audio_data_float = np.clip(padded_audio, -1.0, 1.0)
             audio_data = (audio_data_float * 32767).astype(np.int16)
             
-            sf.write(output_path, audio_data, self.sample_rate, subtype='PCM_16')
-            print(f"[+] Saved recording to {output_path}")
+            if output_path and not output_path.endswith(".discard"):
+                sf.write(output_path, audio_data, self.sample_rate, subtype='PCM_16')
+                print(f"[+] Saved recording to {output_path}")
             # Release raw capture buffers now that the WAV is on disk. Previously they were kept
             # until the next recording started (~690 MB/hour of float32 audio at 48 kHz).
             self.full_audio_history = []

@@ -565,7 +565,7 @@ struct LatencyMetricsCard: View {
                 stages.append(BarItemStage(stage: "Correction", ms: c * scale))
             }
             if p > 0 {
-                stages.append(BarItemStage(stage: "Focus & paste", ms: p * scale))
+                stages.append(BarItemStage(stage: "Pipeline & paste", ms: p * scale))
             }
             if stages.isEmpty && total > 0 {
                 stages.append(BarItemStage(stage: "Transcription", ms: min(total, cap)))
@@ -637,7 +637,7 @@ struct LatencyMetricsCard: View {
             "Transcription": Color.primary.opacity(0.48),
             "Formatting": Color.appAccent,
             "Correction": LatencyFormat.correctionAccent.opacity(0.75),
-            "Focus & paste": Color.primary.opacity(0.20)
+            "Pipeline & paste": Color.primary.opacity(0.20)
         ])
         .chartXAxis(.hidden)
         .chartYAxis {
@@ -764,14 +764,14 @@ struct LatencyMetricsCard: View {
                     let pasteMs = item.pasteOverheadMs
                     if pasteMs > 15 {
                         HStack(spacing: 4) {
-                            Image(systemName: item.pasted == true ? "keyboard" : "doc.on.clipboard")
+                            Image(systemName: item.pasted == true ? "arrow.triangle.swap" : "doc.on.clipboard")
                                 .font(.system(size: 8))
                                 .foregroundColor(.dictySecondary)
-                            Text(item.pasted == true ? "Focus & paste \(LatencyFormat.ms(pasteMs))" : "Clipboard copy \(LatencyFormat.ms(pasteMs))")
+                            Text(item.pasted == true ? "Pipeline & paste \(LatencyFormat.ms(pasteMs))" : "Clipboard copy \(LatencyFormat.ms(pasteMs))")
                                 .font(.system(size: 10))
                                 .foregroundColor(.dictySecondary)
                         }
-                        .help(item.pasted == true ? "Time for macOS to activate the target window, wait for focus, and paste text via Cmd+V" : "Time to copy the result to the macOS clipboard")
+                        .help(item.pasted == true ? "Audio packaging, HTTP engine loopback, JSON serialization, and active window paste" : "Time to copy the result to the macOS clipboard")
                     }
 
                     Spacer(minLength: 0)

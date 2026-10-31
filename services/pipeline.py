@@ -507,8 +507,7 @@ async def process_transcription(
         dur_max = 0.0
         for p in dur_paths:
             try:
-                with wave.open(p, 'rb') as wav_file:
-                    dur_max = max(dur_max, wav_file.getnframes() / float(wav_file.getframerate()))
+                dur_max = max(dur_max, os.path.getsize(p) / 32000.0)
             except Exception:
                 pass
         duration_seconds = dur_max if dur_max > 0 else 5.0

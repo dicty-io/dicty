@@ -285,6 +285,8 @@ class EngineClient: ObservableObject {
     @AppStorage("authorName") var authorName: String = ""
     
     @Published var targetApp: NSRunningApplication?
+    private static let eventSource = CGEventSource(stateID: .hidSystemState)
+    private static var isAccessibilityTrusted: Bool = AXIsProcessTrusted()
     
     // MARK: - App Rules
     @Published var appRules: [AppRule] = []
@@ -532,7 +534,8 @@ class EngineClient: ObservableObject {
             req.httpMethod = "POST"
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.httpBody = try? JSONSerialization.data(withJSONObject: ["end_to_end_ms": ms, "pasted": pasted])
-            _ = try? await EngineEndpoint.shared.session.data(for: req)
+            EngineEndpoint.shared.authorize(&req)
+            _ = try? await EngineEndpoint.shared.bareSession.data(for: req)
             self.fetchPerformanceMetrics(recentLimit: self.lastRecentLimit)
         }
     }
@@ -3011,7 +3014,11 @@ class EngineClient: ObservableObject {
         guard isRecording else { return }
         if Date().timeIntervalSince(lastToggleTime) < 0.2 { return }
         lastToggleTime = Date()
+        let stopStartTime = Date()
         self.isHoldingToRecord = false
+        
+        // 1. Instantly stop native microphone recording on keyup so audio capture ends on keyup
+        let nativeMicUrl = self.audioRecorder.stopMicRecording()
         
         if let frontmost = NSWorkspace.shared.frontmostApplication,
            frontmost.bundleIdentifier != Bundle.main.bundleIdentifier {
@@ -3020,23 +3027,32 @@ class EngineClient: ObservableObject {
             }
         }
         
-        // Immediately activate target app while transcription is underway in the background,
-        // so Window Server key-window focus is already settled when the result arrives.
-        if let target = self.targetApp, !target.isTerminated {
-            target.activate()
+        // Asynchronously activate target app so WindowServer IPC does not block the stop sequence
+        let target = self.targetApp
+        DispatchQueue.global(qos: .userInitiated).async {
+            if let target = target, !target.isTerminated {
+                target.activate()
+            }
         }
         
-        playRecordingSound(isStart: false) // Stopping
+        // Play stop sound asynchronously
+        DispatchQueue.main.async { [weak self] in
+            self?.playRecordingSound(isStart: false)
+        }
+        
         self.isRecording = false
         self.isPaused = false
         self.pauseModifierWasPressed = false
         self.targetModifierWasPressed = false
         self.lastPauseToggleTime = Date.distantPast
-        MediaPlaybackManager.shared.resumeMediaIfNeeded(shouldResume: self.resumeMediaAfterRecord)
+        let shouldResume = self.resumeMediaAfterRecord
+        Task { @MainActor in
+            MediaPlaybackManager.shared.resumeMediaIfNeeded(shouldResume: shouldResume)
+        }
         self.isProcessing = true
         
         let startMoment = self.recordingStartTime
-        Task {
+        Task(priority: .userInitiated) {
             // Guard against microsecond release race conditions (e.g. key tapped or quickly released before /recording/start HTTP request finishes)
             let elapsed = Date().timeIntervalSince(startMoment)
             if elapsed < 0.3 {
@@ -3044,7 +3060,6 @@ class EngineClient: ObservableObject {
             }
             
             do {
-                let nativeMicUrl = self.audioRecorder.stopMicRecording()
                 defer {
                     if let u = nativeMicUrl {
                         try? FileManager.default.removeItem(at: u)
@@ -3065,23 +3080,25 @@ class EngineClient: ObservableObject {
                     stopReq.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
                     
                     var body = self.buildFormBody(boundary: boundary)
-                    if let micUrl = nativeMicUrl, let micData = try? Data(contentsOf: micUrl), micData.count > 512 {
+                    if let micUrl = nativeMicUrl {
+                        // ZERO-COPY: Send audio file path directly to the local Python engine
                         body.append("--\(boundary)\r\n".data(using: .utf8)!)
-                        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"mic.wav\"\r\n".data(using: .utf8)!)
-                        body.append("Content-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
-                        body.append(micData)
-                        body.append("\r\n".data(using: .utf8)!)
+                        body.append("Content-Disposition: form-data; name=\"audio_file_path\"\r\n\r\n".data(using: .utf8)!)
+                        body.append("\(micUrl.path)\r\n".data(using: .utf8)!)
                     }
                     body.append("--\(boundary)--\r\n".data(using: .utf8)!)
                     stopReq.httpBody = body
                     
-                    let stopStartTime = Date()
                     DispatchQueue.main.async { self.processingStatusMessage = "Processing..." }
                     let statusTask = Task {
+                        // Delay initial poll: normal dictations finish in <1s so don't crowd the loop
+                        try? await Task.sleep(nanoseconds: 1_000_000_000)
                         while !Task.isCancelled {
                             do {
                                 let statusUrl = URL(string: self.engineURL + "/recording/status")!
-                                let (statusData, _) = try await EngineEndpoint.shared.session.data(from: statusUrl)
+                                var sReq = URLRequest(url: statusUrl)
+                                EngineEndpoint.shared.authorize(&sReq)
+                                let (statusData, _) = try await EngineEndpoint.shared.bareSession.data(for: sReq)
                                 if let json = try? JSONSerialization.jsonObject(with: statusData) as? [String: Any],
                                    let msg = json["status"] as? String {
                                     DispatchQueue.main.async {
@@ -3093,7 +3110,13 @@ class EngineClient: ObservableObject {
                         }
                     }
                     
-                    let (data, _) = try await EngineEndpoint.shared.session.data(for: stopReq)
+                    EngineEndpoint.shared.authorize(&stopReq)
+                    var (data, response) = try await EngineEndpoint.shared.bareSession.data(for: stopReq)
+                    if let http = response as? HTTPURLResponse, http.statusCode == 401 {
+                        EngineEndpoint.shared.reloadTokenFromDisk()
+                        EngineEndpoint.shared.authorize(&stopReq)
+                        (data, response) = try await EngineEndpoint.shared.bareSession.data(for: stopReq)
+                    }
                     statusTask.cancel()
                     let httpReceiveTime = Date()
                     handleTranscriptionResponse(data: data, stopStartTime: stopStartTime, httpReceiveTime: httpReceiveTime)
@@ -3478,9 +3501,10 @@ class EngineClient: ObservableObject {
         body.append("Content-Disposition: form-data; name=\"llm_api_key\"\r\n\r\n".data(using: .utf8)!)
         body.append("\(llmApiKey)\r\n".data(using: .utf8)!)
         
+        let effectiveLang = self.activeModel.hasSuffix(".en") ? "en" : self.transcriptionLanguage
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"language\"\r\n\r\n".data(using: .utf8)!)
-        body.append("\(transcriptionLanguage)\r\n".data(using: .utf8)!)
+        body.append("\(effectiveLang)\r\n".data(using: .utf8)!)
         
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"translate_to_english\"\r\n\r\n".data(using: .utf8)!)
@@ -3650,117 +3674,77 @@ class EngineClient: ObservableObject {
     }
     
     private func simulatePaste(backupToRestore: ClipboardBackup? = nil, onPasted: ((Bool) -> Void)? = nil) {
-        DispatchQueue.main.async {
-            let isOnboardingKey = WindowManager.onboardingWindow?.isKeyWindow == true
-            
-            if isOnboardingKey {
-                // In Onboarding, the text box handles the result programmatically.
-                // Abort the physical Cmd+V simulation only if the Onboarding window is actively focused.
+        let isOnboardingKey = WindowManager.onboardingWindow?.isKeyWindow == true
+        if isOnboardingKey {
+            onPasted?(false)
+            return
+        }
+        
+        if !Self.isAccessibilityTrusted {
+            let trusted = AXIsProcessTrusted()
+            if !trusted {
+                let alert = NSAlert()
+                alert.messageText = "Accessibility Permission Required"
+                alert.informativeText = "Dicty needs Accessibility permissions to paste text. If you just updated Dicty, macOS may be holding a stale permission rule."
+                alert.alertStyle = .critical
+                alert.addButton(withTitle: "Open System Settings")
+                alert.addButton(withTitle: "Reset Stale Rule & Open Settings")
+                alert.addButton(withTitle: "Cancel")
+                
+                let response = alert.runModal()
+                if response == .alertSecondButtonReturn {
+                    let process = Process()
+                    process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+                    process.arguments = ["reset", "Accessibility", "com.antigravity.Dicty"]
+                    try? process.run()
+                    process.waitUntilExit()
+                }
+                
+                if response != .alertThirdButtonReturn {
+                    let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+                    _ = AXIsProcessTrustedWithOptions(options)
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
                 onPasted?(false)
                 return
             }
-            
-            // Step 1: Re-activate target application if set (ignoring other apps for instant response)
-            if let target = self.targetApp, !target.isTerminated {
-                target.activate()
+            Self.isAccessibilityTrusted = true
+        }
+        
+        let vKeyCode: CGKeyCode = 9 // 'v'
+        let cmdKeyCode: CGKeyCode = 55 // Command
+        
+        guard let src = Self.eventSource ?? CGEventSource(stateID: .hidSystemState) else {
+            onPasted?(false)
+            return
+        }
+        
+        let cmdDown = CGEvent(keyboardEventSource: src, virtualKey: cmdKeyCode, keyDown: true)
+        let cmdUp = CGEvent(keyboardEventSource: src, virtualKey: cmdKeyCode, keyDown: false)
+        let vDown = CGEvent(keyboardEventSource: src, virtualKey: vKeyCode, keyDown: true)
+        let vUp = CGEvent(keyboardEventSource: src, virtualKey: vKeyCode, keyDown: false)
+        
+        vDown?.flags = .maskCommand
+        vUp?.flags = .maskCommand
+        
+        let tapLoc = CGEventTapLocation.cghidEventTap
+        cmdDown?.post(tap: tapLoc)
+        vDown?.post(tap: tapLoc)
+        vUp?.post(tap: tapLoc)
+        cmdUp?.post(tap: tapLoc)
+        onPasted?(true)
+        
+        TelemetryClient.shared.track("text_injected", properties: [
+            "is_trusted_accessibility": true
+        ])
+        
+        if let backup = backupToRestore {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                backup.restore()
+                print("[*] Restored previous clipboard content after auto-paste.")
             }
-            
-            // Step 3: Post key event as soon as focus has returned to the target app.
-            // If the target app is already frontmost (which is true in ~95% of dictations since Dicty's
-            // overlay is a nonactivating panel), paste almost immediately with minimal 8ms settle.
-            // If focus had to transfer from Dicty or another app, allow a brief 25ms for the Window Server event loop.
-            let pasteStart = Date()
-            let maxWait: TimeInterval = 0.35
-            let targetPID = self.targetApp?.processIdentifier
-            @MainActor func waitForFocusThenPaste() {
-                let elapsed = Date().timeIntervalSince(pasteStart)
-                let front = NSWorkspace.shared.frontmostApplication
-                let focusReturned: Bool
-                if let pid = targetPID {
-                    focusReturned = (front?.processIdentifier == pid && !NSApp.isActive)
-                } else {
-                    // When no external target app is tracked (e.g. dictating while in Dicty),
-                    // don't stall for maxWait waiting for Dicty to deactivate itself.
-                    focusReturned = true
-                }
-                if focusReturned {
-                    let settleDelay: TimeInterval = (elapsed < 0.015) ? 0.008 : 0.025
-                    DispatchQueue.main.asyncAfter(deadline: .now() + settleDelay) { performPaste() }
-                } else if elapsed >= maxWait {
-                    performPaste()
-                } else {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.010) { waitForFocusThenPaste() }
-                }
-            }
-            @MainActor func performPaste() {
-                print(String(format: "[*] Paste focus wait: %.0fms", Date().timeIntervalSince(pasteStart) * 1000))
-                let isTrusted = AXIsProcessTrusted()
-                
-                if !isTrusted {
-                    let alert = NSAlert()
-                    alert.messageText = "Accessibility Permission Required"
-                    alert.informativeText = "Dicty needs Accessibility permissions to paste text. If you just updated Dicty, macOS may be holding a stale permission rule."
-                    alert.alertStyle = .critical
-                    alert.addButton(withTitle: "Open System Settings")
-                    alert.addButton(withTitle: "Reset Stale Rule & Open Settings")
-                    alert.addButton(withTitle: "Cancel")
-                    
-                    let response = alert.runModal()
-                    if response == .alertSecondButtonReturn {
-                        // Purge stale TCC entry from old build
-                        let process = Process()
-                        process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
-                        process.arguments = ["reset", "Accessibility", "com.antigravity.Dicty"]
-                        try? process.run()
-                        process.waitUntilExit()
-                    }
-                    
-                    if response != .alertThirdButtonReturn {
-                        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-                        _ = AXIsProcessTrustedWithOptions(options)
-                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-                    onPasted?(false)
-                    return
-                }
-                
-                let vKeyCode: CGKeyCode = 9 // 'v'
-                let cmdKeyCode: CGKeyCode = 55 // Command
-                
-                guard let src = CGEventSource(stateID: .hidSystemState) else { return }
-                
-                let cmdDown = CGEvent(keyboardEventSource: src, virtualKey: cmdKeyCode, keyDown: true)
-                let cmdUp = CGEvent(keyboardEventSource: src, virtualKey: cmdKeyCode, keyDown: false)
-                let vDown = CGEvent(keyboardEventSource: src, virtualKey: vKeyCode, keyDown: true)
-                let vUp = CGEvent(keyboardEventSource: src, virtualKey: vKeyCode, keyDown: false)
-                
-                vDown?.flags = .maskCommand
-                vUp?.flags = .maskCommand
-                
-                let tapLoc = CGEventTapLocation.cghidEventTap
-                
-                // Explicitly sequence Command Down -> V Down -> V Up -> Command Up for Electron/Chromium compatibility
-                cmdDown?.post(tap: tapLoc)
-                vDown?.post(tap: tapLoc)
-                vUp?.post(tap: tapLoc)
-                cmdUp?.post(tap: tapLoc)
-                onPasted?(true)
-                
-                TelemetryClient.shared.track("text_injected", properties: [
-                    "is_trusted_accessibility": isTrusted
-                ])
-                
-                // Restore previous clipboard after target application has processed the paste keystroke
-                if let backup = backupToRestore {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        backup.restore()
-                        print("[*] Restored previous clipboard content after auto-paste.")
-                    }
-                }
-            }
-            waitForFocusThenPaste()
         }
     }
     
