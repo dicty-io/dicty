@@ -17,11 +17,53 @@ concurrency:
   group: tests-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+env:
+  # Bump together with the actionlint release used by the lint job.
+  ACTIONLINT_VERSION: '1.7.12'
+
 jobs:
   # =========================================================================
+  # 0. CHANGE DETECTION
+  # Lets expensive platform jobs skip when nothing they build has changed,
+  # while the quality gate below always reports a result.
+  # =========================================================================
+  changes:
+    name: Detect Changed Areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tauri: ${{ steps.diff.outputs.tauri }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Detect Tauri Changed Paths
+        id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" != "pull_request" ] || [ -z "$BASE_REF" ]; then
+            echo "[*] Not a pull request: running the full matrix."
+            echo "tauri=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          FILES="$(git diff --name-only "origin/${BASE_REF}...HEAD")"
+          if echo "$FILES" | grep -qE '^(DictyClientTauri/|requirements-windows\.txt|scripts/windows/)'; then
+            echo "[*] Tauri/Windows files changed."
+            echo "tauri=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "[*] No Tauri/Windows files changed; skipping the Windows job."
+            echo "tauri=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # =========================================================================
   # 1. BACKEND TEST SUITE
-  # Runs on every PR and push. macOS-only: the engine is macOS/Windows only,
-  # and the suite imports audio/TTS services that need the macOS toolchain.
+  # Runs on every PR and push. macOS-only: the engine ships for macOS and
+  # Windows, and the suite imports audio/TTS services built for that stack.
   # =========================================================================
   python-tests:
     name: Backend Tests
@@ -100,7 +142,88 @@ jobs:
           ./scripts/validate_app_bundle.sh
 
   # =========================================================================
-  # 3. SWIFT TEST SUITE (nightly / manual only)
+  # 3. LINT & WORKFLOW CHECKS
+  # Deliberately narrow: catches undefined names, dead imports that hide
+  # NameErrors, and malformed workflow files. No style rules yet, so this
+  # gate does not churn on formatting preferences.
+  # =========================================================================
+  lint:
+    name: Lint & Workflow Checks
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install Ruff
+        run: pip install ruff
+
+      - name: Ruff (syntax errors and undefined names)
+        run: |
+          ruff check --select E9,F63,F7,F82 --output-format=github \
+            --exclude .venv --exclude .build --exclude bin .
+
+      - name: Install Actionlint
+        run: |
+          case "$(uname -m)" in
+            arm64|aarch64) ARCH=arm64 ;;
+            *)             ARCH=amd64 ;;
+          esac
+          curl -sSL -o actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_darwin_${ARCH}.tar.gz"
+          tar xzf actionlint.tar.gz actionlint
+          ./actionlint --version
+
+      - name: Actionlint
+        run: ./actionlint -color .github/workflows/*.yml
+
+  # =========================================================================
+  # 4. TAURI CLIENT CHECKS (Windows)
+  # The Windows app is only packaged at release time, so without this job a
+  # broken frontend or Rust build is first discovered while cutting a release.
+  # Skipped on PRs that touch no Tauri or Windows files.
+  # =========================================================================
+  tauri-checks:
+    name: Tauri Client Checks (Windows)
+    needs: changes
+    if: needs.changes.outputs.tauri == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: DictyClientTauri
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'DictyClientTauri/package-lock.json'
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Type-check and Build Frontend
+        run: npm run build
+
+      - name: Cache Rust Build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: DictyClientTauri/src-tauri
+
+      - name: Check Rust Compilation
+        run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+
+  # =========================================================================
+  # 5. SWIFT TEST SUITE (nightly / manual only)
   # Kept off the PR path: the suite has a history of runner flakiness, and a
   # flaky check would block contributors. A nightly run still surfaces real
   # regressions and gives us evidence before it becomes a PR problem.
@@ -129,18 +252,67 @@ jobs:
           swift --version
 
       - name: Run Swift Test Suite
-        run: |
-          make test-swift
+        run: make test-swift
 
   # =========================================================================
-  # 4. TEST STATUS GATE
+  # 6. PACKAGING SMOKE TEST (nightly / manual only)
+  # Builds exactly what a release ships (whisper.cpp + PyInstaller bundle) so
+  # a broken spec or a missing native binary is found on a Tuesday night
+  # instead of while cutting a release.
+  # =========================================================================
+  packaging-smoke:
+    name: Packaging Smoke Test (nightly)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-15
+    timeout-minutes: 75
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+
+      - name: Cache whisper.cpp Build
+        uses: actions/cache@v4
+        with:
+          path: bin/whisper.cpp/build
+          key: whisper-${{ runner.os }}-${{ hashFiles('scripts/compile_whisper.sh') }}
+          restore-keys: |
+            whisper-${{ runner.os }}-
+
+      - name: Set up Persistent Python Environment & Dependencies
+        run: |
+          chmod +x scripts/setup_runner_env.sh
+          ./scripts/setup_runner_env.sh
+
+      - name: Compile whisper.cpp
+        run: |
+          chmod +x scripts/compile_whisper.sh
+          ./scripts/compile_whisper.sh
+
+      - name: Build Engine Bundle (PyInstaller)
+        run: ./.venv/bin/pyinstaller --noconfirm dicty_engine.spec
+
+      - name: Verify Bundle Contents
+        run: |
+          test -x dist/dicty_engine/dicty_engine || {
+            echo "[-] dist/dicty_engine/dicty_engine was not produced."
+            exit 1
+          }
+          for binary in bin/whisper-cli bin/whisper-server; do
+            test -x "dist/dicty_engine/$binary" || {
+              echo "[-] $binary is missing from the engine bundle."
+              exit 1
+            }
+          done
+          echo "[+] Engine bundle is complete: $(du -sh dist/dicty_engine | cut -f1)"
+
+  # =========================================================================
+  # 7. TEST STATUS GATE
   # Always runs so the required check always reports a result, including when
-  # optional jobs are skipped (nightly-only suites, fork PRs).
+  # optional jobs are skipped (nightly-only suites, non-Tauri PRs).
   # =========================================================================
   tests-quality-gate:
     name: Tests Quality Gate
     if: always()
-    needs: [python-tests, swift-build, swift-tests]
+    needs: [python-tests, swift-build, lint, tauri-checks, swift-tests, packaging-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -148,29 +320,47 @@ jobs:
         env:
           PYTHON_TESTS: ${{ needs.python-tests.result }}
           SWIFT_BUILD: ${{ needs.swift-build.result }}
+          LINT: ${{ needs.lint.result }}
+          TAURI_CHECKS: ${{ needs.tauri-checks.result }}
           SWIFT_TESTS: ${{ needs.swift-tests.result }}
+          PACKAGING_SMOKE: ${{ needs.packaging-smoke.result }}
         run: |
           echo "Backend Tests:              $PYTHON_TESTS"
           echo "Swift Client Release Build: $SWIFT_BUILD"
+          echo "Lint & Workflow Checks:     $LINT"
+          echo "Tauri Client Checks:        $TAURI_CHECKS"
           echo "Swift Test Suite (nightly): $SWIFT_TESTS"
+          echo "Packaging Smoke (nightly):  $PACKAGING_SMOKE"
           echo ""
 
           FAILED=0
-          if [ "$PYTHON_TESTS" != "success" ]; then
-            echo "[-] Backend tests did not pass."
-            FAILED=1
-          fi
-          if [ "$SWIFT_BUILD" != "success" ]; then
-            echo "[-] Swift client release build did not pass."
-            FAILED=1
-          fi
-          case "$SWIFT_TESTS" in
-            success|skipped) ;;
-            *)
-              echo "[-] Nightly Swift test suite did not pass."
+
+          # Always required.
+          for CHECK in "Backend tests:$PYTHON_TESTS" \
+                       "Swift client release build:$SWIFT_BUILD" \
+                       "Lint & workflow checks:$LINT"; do
+            NAME="${CHECK%%:*}"
+            RESULT="${CHECK##*:}"
+            if [ "$RESULT" != "success" ]; then
+              echo "[-] ${NAME} did not pass (result: ${RESULT})."
               FAILED=1
-              ;;
-          esac
+            fi
+          done
+
+          # Required when they run, allowed to be skipped.
+          for CHECK in "Tauri client checks:$TAURI_CHECKS" \
+                       "Swift test suite:$SWIFT_TESTS" \
+                       "Packaging smoke test:$PACKAGING_SMOKE"; do
+            NAME="${CHECK%%:*}"
+            RESULT="${CHECK##*:}"
+            case "$RESULT" in
+              success|skipped) ;;
+              *)
+                echo "[-] ${NAME} did not pass (result: ${RESULT})."
+                FAILED=1
+                ;;
+            esac
+          done
 
           if [ "$FAILED" -ne 0 ]; then
             echo "=================================================================="

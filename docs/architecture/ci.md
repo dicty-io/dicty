@@ -1,26 +1,30 @@
 # CI Pipeline
 
-Dicty ships to macOS and Windows only, so all CI workloads run on GitHub-hosted
-`macos-15` (and `windows-latest` for release packaging). Standard hosted runners are
-free for public repositories, so the goal of this pipeline is fast, meaningful signal
-rather than runner-minutes.
+Dicty ships to macOS and Windows only, so every workload runs on GitHub-hosted
+`macos-15` / `windows-latest` runners (plus a couple of seconds-long bookkeeping jobs on
+`ubuntu-latest`). Standard hosted runners are free for public repositories, so this
+pipeline optimises for signal quality and PR feedback time rather than runner-minutes.
 
 ## Workflows
 
 | Workflow | Trigger | Purpose |
 | --- | --- | --- |
-| `tests-and-build.yml` | `pull_request`, `push` to `main`, nightly `schedule`, manual | Backend tests, Swift release build, nightly Swift tests |
-| `release.yml` | manual (`workflow_dispatch`) | Version bump, release notes, DMG / Windows installer, Homebrew cask |
+| `tests-and-build.yml` | `pull_request`, `push` to `main`, nightly `schedule`, manual | Backend tests, Swift build, lint, Windows/Tauri checks, nightly suites |
+| `release.yml` | manual (`workflow_dispatch`) | Version bump, release notes, DMG / Windows installer, publish, Homebrew cask |
 | `release-drafter.yml` | `push` to `main`, `pull_request_target` | Draft release notes and version resolution |
 
 ## `tests-and-build.yml` jobs
 
 | Job | Runs on | When | What it does |
 | --- | --- | --- | --- |
-| `python-tests` | `macos-15` | every PR and push | `check_engine_endpoint.sh` guard, 300+ backend unit tests with coverage, Codecov upload |
-| `swift-build` | `macos-15` | every PR and push | `swift build -c release` with a cached `.build`, then `validate_app_bundle.sh` (bundle sealing + codesign verification) |
+| `changes` | `ubuntu-latest` | every run | Diffs the PR against its base to decide whether the Windows job is relevant |
+| `python-tests` | `macos-15` | every PR and push | `check_engine_endpoint.sh` guard, backend unit tests with coverage, Codecov upload |
+| `swift-build` | `macos-15` | every PR and push | `swift build -c release` with a cached `.build`, then `validate_app_bundle.sh` |
+| `lint` | `macos-15` | every PR and push | Ruff (`E9,F63,F7,F82`) and actionlint over `.github/workflows` |
+| `tauri-checks` | `windows-latest` | PRs touching Tauri/Windows files, plus push/nightly | `npm ci`, `npm run build` (tsc + vite), `cargo check --all-targets` |
 | `swift-tests` | `macos-15` | nightly cron and manual dispatch | `make test-swift` |
-| `tests-quality-gate` | `ubuntu-latest` | always | Fails the run unless the required jobs succeeded; always reports a status so required checks never hang |
+| `packaging-smoke` | `macos-15` | nightly cron and manual dispatch | Compiles whisper.cpp and builds `dicty_engine.spec` with PyInstaller, asserts the bundle contents |
+| `tests-quality-gate` | `ubuntu-latest` | always | Fails the run unless the required jobs succeeded; always reports a status |
 
 ### Why the Swift build is on pull requests but the Swift tests are not
 
@@ -32,11 +36,38 @@ contributors for reasons unrelated to their change. It runs nightly instead, whe
 failure is a signal to investigate rather than a merge blocker. To run it against a PR,
 use `workflow_dispatch` on the branch.
 
+### Why the lint gate is narrow
+
+`lint` deliberately runs only Ruff's syntax/undefined-name rules. A codebase-wide style or
+import-order gate added today would fail on hundreds of pre-existing findings and block
+every PR for unrelated reasons. Widen the rule selection as the codebase is cleaned up.
+
 ### Required checks
 
 Branch protection on `main` should require exactly one status check:
-**`Tests Quality Gate`**. The gate tolerates jobs that are legitimately skipped and fails
-on anything else, so adding or removing jobs never leaves a PR stuck on a pending check.
+**`Tests Quality Gate`**. The gate knows which jobs are optional, so adding or removing
+jobs never leaves a PR stuck on a pending check.
+
+## Release pipeline
+
+`release.yml` is manual and runs in this order:
+
+1. **`release`** — detects which platforms were affected since the last published release
+   by diffing the changed paths (shared backend paths trigger both platforms), creates the
+   release **as a draft**, and computes the next version.
+2. **`build_mac`** — imports the Developer ID certificate, builds and signs the DMG,
+   notarizes and staples it, verifies the signature and Gatekeeper assessment, uploads the
+   DMG plus checksum, and bumps the Homebrew cask.
+3. **`build_windows`** — packages the backend with PyInstaller and the Tauri installer,
+   then uploads the `.exe` plus checksum.
+4. **`publish`** — only runs when every requested installer succeeded and the expected
+   assets are attached, then flips the draft to a published release.
+
+Because the release stays a draft until the end, a failed build never produces a public
+release with missing assets. Re-running the workflow reuses the same draft.
+
+The `build_mac` / `build_windows` inputs accept `auto` (default), `always`, or `never`, so
+a Windows-only change does not rebuild or re-publish a macOS installer.
 
 ## Reproducing CI locally
 
@@ -57,4 +88,4 @@ its central client module (`EngineEndpoint.swift`, `engine_http.rs`,
   slot for up to six hours.
 - Jobs that touch secrets must not run on `pull_request` from forks; GitHub does not pass
   secrets to those runs.
-- Workflow changes should pass `actionlint` before merge.
+- Workflow changes must pass `actionlint`; `lint` enforces it in CI.

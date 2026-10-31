@@ -39,3 +39,13 @@ updates:
       npm-dependencies:
         patterns:
           - "*"
+
+  # 5. Windows Tauri Rust Dependencies (DictyClientTauri/src-tauri/Cargo.toml)
+  - package-ecosystem: "cargo"
+    directory: "/DictyClientTauri/src-tauri"
+    schedule:
+      interval: "weekly"
+    groups:
+      cargo-dependencies:
+        patterns:
+          - "*"
