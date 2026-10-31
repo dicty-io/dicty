@@ -93,9 +93,27 @@ vocabulary_manager = VocabularyManager()
 snippets_manager = snippet_service.SnippetsManager(os.path.join(DATA_DIR, "snippets.json"))
 app_rules_manager = app_rules.AppRulesManager(DATA_DIR)
 
+def _is_safe_audio_to_delete(p: str) -> bool:
+    if not p or not isinstance(p, str):
+        return False
+    try:
+        import tempfile
+        real_p = os.path.realpath(p)
+        allowed_dirs = [
+            os.path.realpath(paths.DATA_DIR),
+            os.path.realpath(paths.INPUT_DIR),
+            os.path.realpath(tempfile.gettempdir()),
+            os.path.realpath("/private/var/folders"),
+            os.path.realpath("/var/folders"),
+        ]
+        return any(real_p.startswith(d) for d in allowed_dirs) and not os.path.isdir(real_p)
+    except Exception:
+        return False
+
 class HistoryManager:
     def __init__(self):
         self.lock = threading.Lock()
+        self._cached_data = None
         if not os.path.exists(paths.HISTORY_FILE):
             try:
                 with open(paths.HISTORY_FILE, "w") as f:
@@ -104,44 +122,66 @@ class HistoryManager:
                 pass
                 
     def _read_data(self):
+        if self._cached_data is not None:
+            return [dict(x) for x in self._cached_data]
         if not os.path.exists(paths.HISTORY_FILE):
+            self._cached_data = []
             return []
         try:
             with open(paths.HISTORY_FILE, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read().strip()
                 if not content:
+                    self._cached_data = []
                     return []
-                return json.loads(content)
+                loaded = json.loads(content)
+                self._cached_data = loaded if isinstance(loaded, list) else []
+                return [dict(x) for x in self._cached_data]
         except Exception as e:
             print(f"[!] Warning reading history.json: {e}")
-            return []
+            raise
 
     def _write_data(self, data):
         temp_file = f"{paths.HISTORY_FILE}.tmp.{os.getpid()}"
+        persisted = False
         try:
             with open(temp_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
+                json.dump(data, f)
             os.replace(temp_file, paths.HISTORY_FILE)
+            persisted = True
         except Exception:
             try:
                 with open(paths.HISTORY_FILE, "w", encoding="utf-8") as f:
-                    json.dump(data, f, indent=2)
+                    json.dump(data, f)
+                persisted = True
             except Exception as e2:
                 print(f"[!] Error writing history.json: {e2}")
+        if persisted:
+            self._cached_data = [dict(x) for x in data]
 
     def get_all(self):
         with self.lock:
-            return self._read_data()
+            try:
+                return self._read_data()
+            except Exception:
+                return []
             
     def add_record(self, record):
         with self.lock:
-            data = self._read_data()
+            try:
+                data = self._read_data()
+            except Exception as e:
+                print(f"[!] Aborting add_record because history read failed: {e}")
+                return
             data.insert(0, record)
             self._write_data(data)
                 
     def update_record(self, record_id, updates):
         with self.lock:
-            data = self._read_data()
+            try:
+                data = self._read_data()
+            except Exception as e:
+                print(f"[!] Aborting update_record because history read failed: {e}")
+                return None
             record = next((r for r in data if r.get("id") == record_id), None)
             if record:
                 record.update(updates)
@@ -150,26 +190,22 @@ class HistoryManager:
             
     def delete_record(self, record_id):
         with self.lock:
-            data = self._read_data()
+            try:
+                data = self._read_data()
+            except Exception as e:
+                print(f"[!] Aborting delete_record because history read failed: {e}")
+                return None
             record = next((r for r in data if r.get("id") == record_id), None)
             if record:
                 data = [r for r in data if r.get("id") != record_id]
                 self._write_data(data)
-                if record.get("audio_file") and os.path.exists(record["audio_file"]):
-                    try:
-                        os.remove(record["audio_file"])
-                    except Exception:
-                        pass
-                if record.get("audio_file_mic") and os.path.exists(record["audio_file_mic"]):
-                    try:
-                        os.remove(record["audio_file_mic"])
-                    except Exception:
-                        pass
-                if record.get("audio_file_sys") and os.path.exists(record["audio_file_sys"]):
-                    try:
-                        os.remove(record["audio_file_sys"])
-                    except Exception:
-                        pass
+                for track in ("audio_file", "audio_file_mic", "audio_file_sys"):
+                    path = record.get(track)
+                    if path and _is_safe_audio_to_delete(path) and os.path.exists(path):
+                        try:
+                            os.remove(path)
+                        except Exception:
+                            pass
             return record
 
     def get_avg_wpm(self):
@@ -228,11 +264,10 @@ class HistoryManager:
             for r in data:
                 for track in ("audio_file", "audio_file_mic", "audio_file_sys"):
                     path = r.get(track, "")
-                    if path and os.path.exists(path):
+                    if path and _is_safe_audio_to_delete(path) and os.path.exists(path):
                         try: os.remove(path)
                         except Exception: pass
-            with open(paths.HISTORY_FILE, "w") as f:
-                json.dump([], f)
+            self._write_data([])
         return True
 
     def get_retention_settings(self):
@@ -314,8 +349,7 @@ class HistoryManager:
                     kept_records.append(r)
                     
             if deleted_count > 0 or scrubbed_audio_count > 0:
-                with open(paths.HISTORY_FILE, "w") as f:
-                    json.dump(kept_records, f, indent=2)
+                self._write_data(kept_records)
                     
             return {
                 "deleted_records": deleted_count,

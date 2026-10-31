@@ -103,6 +103,7 @@ class DeepgramLiveSession(StreamSession):
         self._queue: "asyncio.Queue[Optional[bytes]]" = asyncio.Queue()
         self._finals: List[str] = []
         self._failed = False
+        self.auth_failed = False
         self._finalized = asyncio.Event()
         self._closed = False
         self._last_audio = time.monotonic()
@@ -165,6 +166,11 @@ class DeepgramLiveSession(StreamSession):
         except Exception as e:
             if not self._closed:
                 print(f"[!] Deepgram live stream failed: {e}")
+            status = getattr(getattr(e, 'response', None), 'status_code', None) or getattr(e, 'status_code', None)
+            if status in (401, 403) or "401" in str(e) or "Unauthorized" in str(e) or "INVALID_AUTH" in str(e):
+                self.auth_failed = True
+                hint = "Dicty Cloud token / login" if self.relay_base_url else "DEEPGRAM_API_KEY in Dicty Settings"
+                print(f"[!] [CLOUD AUTH ERROR] Authentication failed ({status or 401}). Please check your {hint}.")
             self._failed = True
             self._finalized.set()
 

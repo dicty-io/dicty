@@ -48,7 +48,7 @@ class DictyAudioRecorder: NSObject, ObservableObject, @unchecked Sendable {
     /// Recording the microphone natively via `AVAudioRecorder` in Swift guarantees macOS TCC always allows
     /// real mic audio, while streaming live volume meters to the overlay on UDP 55555.
     func startMicRecording() throws -> URL {
-        stopMicRecording()
+        _ = stopMicRecording()
         let tempDir = FileManager.default.temporaryDirectory
         let fileUrl = tempDir.appendingPathComponent("dicty_mic_\(UUID().uuidString).wav")
         let settings: [String: Any] = [

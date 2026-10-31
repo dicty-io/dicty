@@ -219,6 +219,7 @@ async def process_transcription(
     mode_reason: str = "",
     mode_style: str = None,
     correction_location: str = None,
+    skip_cloud: bool = False,
 ):
     _metrics_t0 = time.perf_counter()
     if (dictation_format_style or "").strip().lower() == "auto" and mode in ("meeting", "focused_meeting"):
@@ -405,7 +406,8 @@ async def process_transcription(
                 translate_to_english=whisper_translate, 
                 enable_auto_completion=enable_auto_completion,
                 with_timestamps=False,
-                provider=llm_provider
+                provider=llm_provider,
+                skip_cloud=skip_cloud
             )
             if not raw_text or raw_text.strip() == "":
                 return {"status": "error", "message": "Transcription failed or empty"}
@@ -507,10 +509,16 @@ async def process_transcription(
         dur_max = 0.0
         for p in dur_paths:
             try:
-                with wave.open(p, 'rb') as wav_file:
-                    dur_max = max(dur_max, wav_file.getnframes() / float(wav_file.getframerate()))
+                with wave.open(p, 'rb') as wf:
+                    frames = wf.getnframes()
+                    rate = wf.getframerate()
+                    dur = frames / float(rate) if rate > 0 else 0.0
+                dur_max = max(dur_max, dur)
             except Exception:
-                pass
+                try:
+                    dur_max = max(dur_max, os.path.getsize(p) / 32000.0)
+                except Exception:
+                    pass
         duration_seconds = dur_max if dur_max > 0 else 5.0
     except Exception as dur_err:
         print(f"[!] Could not read audio duration for WPM stats ({dur_err}); using 5.0s fallback")

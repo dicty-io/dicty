@@ -7,11 +7,12 @@ import numpy as np
 import os
 import snippet_service
 import sys
+import tempfile
 import time
 import transcribe_service
 import uuid
 import wave
-from services.paths import AUDIO_PATH, INPUT_DIR, SYSTEM_AUDIO_PATH
+from services.paths import AUDIO_PATH, DATA_DIR, INPUT_DIR, SYSTEM_AUDIO_PATH
 from pydantic import BaseModel
 from fastapi import File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from transcribe_service import TranscribeService
@@ -153,6 +154,7 @@ async def start_recording(device_id: int = None, language: str = "auto", is_mute
 @router.post("/recording/stop")
 async def stop_recording(
     file: UploadFile = File(None),
+    audio_file_path: str = Form(None),
     mode: str = Form("dictation"),
     dictation_format_style: str = Form("raw"),
     mode_style: str = Form(None),
@@ -217,40 +219,63 @@ async def stop_recording(
         mode, mode_id, mode_style, correction_location, self_correction_bool, self_correction_model
     )
     
-    if not recorder.is_recording and file is None:
+    if not recorder.is_recording and file is None and not audio_file_path:
         return {"status": "not_recording"}
     
     play_stop_chime()
     t_start = time.perf_counter()
     
     set_status("Packaging audio...")
-    # 1. Stop mic stream instantly & save full audio WAV (and system loopback audio on Windows)
     t_mic_0 = time.perf_counter()
-    # Run in a worker thread: stop() does thread joins, resampling and disk I/O, which would otherwise block the event loop
-    success = await asyncio.to_thread(recorder.stop, AUDIO_PATH, loopback_output_path=SYSTEM_AUDIO_PATH, use_vad_streaming=(use_vad_streaming.lower() == "true")) if recorder.is_recording else False
-    # If the Swift client captured the microphone natively (AVAudioRecorder) and uploaded `file`,
-    # prefer it Whenever Python's PortAudio stream was silent (macOS TCC zeroed out Python mic)
-    # or didn't record.
-    if file is not None:
+    success = False
+    effective_client_audio = None
+
+    # 0. Zero-copy local client audio (same-machine, bypasses multipart binary upload and disk re-writes)
+    if audio_file_path and isinstance(audio_file_path, str) and os.path.exists(audio_file_path):
+        real_p = os.path.realpath(audio_file_path)
+        def _is_contained(p: str, parent: str) -> bool:
+            try:
+                return os.path.commonpath([p, parent]) == parent
+            except Exception:
+                return False
+
+        allowed_dirs = [
+            os.path.realpath(tempfile.gettempdir()),
+            os.path.realpath(DATA_DIR),
+            os.path.realpath(INPUT_DIR)
+        ]
+        if any(_is_contained(real_p, d) for d in allowed_dirs) and real_p.lower().endswith(".wav") and os.path.getsize(real_p) > 256:
+            effective_client_audio = real_p
+            success = True
+            if recorder.is_recording:
+                needs_await = bool(recorder.stream_session is not None or (use_vad_streaming.lower() == "true") or mode in ("meeting", "focused_meeting"))
+                if needs_await:
+                    await asyncio.to_thread(recorder.stop, AUDIO_PATH + ".discard", loopback_output_path=SYSTEM_AUDIO_PATH if mode in ("meeting", "focused_meeting") else None, use_vad_streaming=(use_vad_streaming.lower() == "true"))
+                else:
+                    asyncio.create_task(asyncio.to_thread(recorder.stop, AUDIO_PATH + ".discard", use_vad_streaming=False))
+
+    # 1. If client uploaded native mic WAV (macOS AVAudioRecorder), use it immediately without
+    # waiting synchronously for Python's PortAudio recorder thread joins and resampling.
+    if not success and file is not None:
         try:
             uploaded_bytes = await file.read()
             if len(uploaded_bytes) > 512:
-                use_client_wav = not success
-                if not use_client_wav and os.path.exists(AUDIO_PATH):
-                    try:
-                        with wave.open(AUDIO_PATH, "rb") as w_py:
-                            py_arr = np.frombuffer(w_py.readframes(w_py.getnframes()), dtype=np.int16)
-                        if len(py_arr) == 0 or int(np.max(np.abs(py_arr))) < 64:
-                            use_client_wav = True
-                            print("[*] Python PortAudio mic buffer was silent (TCC); using native Swift AVAudioRecorder WAV.")
-                    except Exception:
-                        use_client_wav = True
-                if use_client_wav:
-                    with open(AUDIO_PATH, "wb") as f_out:
-                        f_out.write(uploaded_bytes)
-                    success = True
+                with open(AUDIO_PATH, "wb") as f_out:
+                    f_out.write(uploaded_bytes)
+                success = True
+                if recorder.is_recording:
+                    needs_await = bool(recorder.stream_session is not None or (use_vad_streaming.lower() == "true") or mode in ("meeting", "focused_meeting"))
+                    if needs_await:
+                        await asyncio.to_thread(recorder.stop, AUDIO_PATH + ".discard", loopback_output_path=SYSTEM_AUDIO_PATH if mode in ("meeting", "focused_meeting") else None, use_vad_streaming=(use_vad_streaming.lower() == "true"))
+                    else:
+                        asyncio.create_task(asyncio.to_thread(recorder.stop, AUDIO_PATH + ".discard", use_vad_streaming=False))
         except Exception as up_err:
             print(f"[!] Failed reading client mic upload: {up_err}")
+
+    # 2. Fall back to Python recorder if client audio was not provided or failed
+    if not success and recorder.is_recording:
+        success = await asyncio.to_thread(recorder.stop, AUDIO_PATH, loopback_output_path=SYSTEM_AUDIO_PATH, use_vad_streaming=(use_vad_streaming.lower() == "true"))
+
     t_mic_ms = (time.perf_counter() - t_mic_0) * 1000.0
     stream_session = recorder.detach_stream_session()
     
@@ -302,10 +327,11 @@ async def stop_recording(
     else:
         effective_separation = "off"
 
-    target_audio = AUDIO_PATH
+    target_audio = effective_client_audio or AUDIO_PATH
     temp_mixed = None
     mic_audio = None
     if is_meeting_mode and has_system_audio:
+        mic_input = effective_client_audio or AUDIO_PATH
         if mute_mic_bool:
             print(f"[*] Selective meeting mode active: microphone muted, using system loopback audio only.")
             target_audio = SYSTEM_AUDIO_PATH
@@ -313,13 +339,13 @@ async def stop_recording(
             if effective_separation != "off":
                 print(f"[*] Meeting mode active with speaker separation '{effective_separation}' (tracks separated).")
                 target_audio = SYSTEM_AUDIO_PATH
-                mic_audio = AUDIO_PATH
+                mic_audio = mic_input
                 temp_mixed = os.path.join(INPUT_DIR, f"mixed_{uuid.uuid4().hex}.wav")
-                mix_audio(SYSTEM_AUDIO_PATH, AUDIO_PATH, temp_mixed)
+                mix_audio(SYSTEM_AUDIO_PATH, mic_input, temp_mixed)
             else:
                 print(f"[*] Mixing {effective_mode} system loopback audio with microphone audio...")
                 temp_mixed = os.path.join(INPUT_DIR, f"mixed_{uuid.uuid4().hex}.wav")
-                mix_audio(SYSTEM_AUDIO_PATH, AUDIO_PATH, temp_mixed)
+                mix_audio(SYSTEM_AUDIO_PATH, mic_input, temp_mixed)
                 target_audio = temp_mixed
 
     if getattr(recorder, "has_paused", False):
@@ -349,8 +375,12 @@ async def stop_recording(
                 print(f"[+] {stream_session.label}: final text ready {fin_ms:.0f} ms after stop")
             else:
                 print(f"[*] {stream_session.label} produced no text; falling back to whole-file transcription")
+                final_text = None
     
-    
+    skip_cloud_fallback = False
+    if stream_session is not None and getattr(stream_session, 'auth_failed', False):
+        skip_cloud_fallback = True
+        print(f"[*] Cloud streaming failed authentication (401); skipping doomed REST retry and falling straight to local speech engine.")
     
     set_status("Fetching GitHub context...")
     if final_text:
@@ -386,7 +416,8 @@ async def stop_recording(
             target_app_bundle_id=target_app_bundle_id,
             app_id=effective_app_id,
             mode_id=resolved_mode_id,
-            mode_reason=resolved_mode_reason
+            mode_reason=resolved_mode_reason,
+            skip_cloud=skip_cloud_fallback
         )
     finally:
         if temp_mixed and os.path.exists(temp_mixed):
