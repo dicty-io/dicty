@@ -147,22 +147,38 @@ jobs:
 
   build_mac:
     needs: release
-    runs-on: macos-latest
+    runs-on: macos-14
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
+      - name: Import Apple Developer ID Certificate (if configured)
+        if: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 != '' }}
+        env:
+          DEVELOPER_ID_CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
+          DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD || 'dicty-build-temp' }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
+          echo "$DEVELOPER_ID_CERTIFICATE_BASE64" | base64 --decode > $RUNNER_TEMP/certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security import $RUNNER_TEMP/certificate.p12 -k $KEYCHAIN_PATH -P "$DEVELOPER_ID_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychains -d user -s $KEYCHAIN_PATH $(security list-keychains -d user | sed -e 's/"//g')
+          rm -f $RUNNER_TEMP/certificate.p12
+
       - name: Set up Persistent Python Environment & Dependencies
         run: |
           chmod +x scripts/setup_runner_env.sh
           ./scripts/setup_runner_env.sh
 
-
-
       - name: Build DMG
         env:
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
           DICTY_VERSION: ${{ needs.release.outputs.next_tag }}
           POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
           # Developer ID signing + notarization (leave unset to build a locally-signed DMG)

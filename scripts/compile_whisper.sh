@@ -67,7 +67,10 @@ rm -rf build
 # Detect available CPU cores for bounded parallel compilation
 NPROC=$(sysctl -n hw.logicalcpu 2>/dev/null || echo 4)
 
+export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
+
 COMMON_FLAGS=(
+    -DCMAKE_OSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET}"
     -DBUILD_SHARED_LIBS=OFF
     -DWHISPER_BUILD_TESTS=OFF
     -DWHISPER_BUILD_EXAMPLES=ON

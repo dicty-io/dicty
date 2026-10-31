@@ -75,13 +75,10 @@ jobs:
   # 2. SELF-HOSTED MAC RUNNER TEST SUITE (Apple Silicon Metal & Swift Build)
   # =========================================================================
   test-and-verify:
-    name: Backend & Swift Client Test Suite (Self-Hosted Apple Silicon)
+    name: Backend & Swift Client Test Suite (macOS Apple Silicon)
     # Runs on internal pushes or PRs where maintainer approves outside forks
     if: github.repository == 'dicty-io/dicty' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: [self-hosted, macOS]
-    env:
-      RUNNER_TOOL_CACHE: /tmp/hostedtoolcache
-      AGENT_TOOLSDIRECTORY: /tmp/hostedtoolcache
+    runs-on: macos-14
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v7

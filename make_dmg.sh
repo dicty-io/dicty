@@ -14,6 +14,8 @@ APP_DIR="${DIST_DIR}/Dicty.app"
 DMG_ROOT="${DIST_DIR}/dmg_root"
 DMG_FILE="${DIST_DIR}/Dicty.dmg"
 
+export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
+
 # 1. Clean previous build artifacts
 echo "[*] Cleaning old build artifacts for a fresh release build..."
 rm -rf "${PROJECT_DIR}/build" "${PROJECT_DIR}/dist"
@@ -200,9 +202,34 @@ if [ -f "DictyClient/Dicty.entitlements" ]; then
     ENTITLEMENTS_ARG="--entitlements DictyClient/Dicty.entitlements"
 fi
 
+# --- Verify minimum deployment target for bundled Mach-O binaries ---
+echo "[*] Verifying minimum macOS deployment target for bundled Mach-O binaries..."
+find "${APP_DIR}/Contents" -type f \( -name "*.dylib" -o -name "*.so" -o -perm -111 \) -print0 |
+while IFS= read -r -d '' f; do
+    if file "$f" | grep -q "Mach-O"; then
+        MIN_OS=$(otool -l "$f" 2>/dev/null | awk '$1=="minos"{print $2}')
+        if [ -n "$MIN_OS" ]; then
+            MAJOR_VER=$(echo "$MIN_OS" | cut -d. -f1)
+            if [ "$MAJOR_VER" -gt 14 ]; then
+                echo "[!] Warning: Mach-O $f has minos $MIN_OS (exceeds macOS 14.0 target)"
+            fi
+        fi
+    fi
+done
+
 # --- Release path: Apple Developer ID (required for Gatekeeper-friendly public releases) ---
 # Set DEVELOPER_ID_APPLICATION="Developer ID Application: Your Name (TEAMID)"
+HAS_DEVELOPER_ID=0
 if [ -n "${DEVELOPER_ID_APPLICATION}" ]; then
+    if security find-identity -v -p codesigning 2>/dev/null | grep -q "${DEVELOPER_ID_APPLICATION}"; then
+        HAS_DEVELOPER_ID=1
+    else
+        echo "[!] Warning: DEVELOPER_ID_APPLICATION is set ('${DEVELOPER_ID_APPLICATION}'), but matching certificate is not present in the keychain."
+        echo "[!] Falling back to ad-hoc signing so build succeeds."
+    fi
+fi
+
+if [ "$HAS_DEVELOPER_ID" = "1" ]; then
     echo "[*] Signing with Developer ID: ${DEVELOPER_ID_APPLICATION}"
     # Notarization requires every nested Mach-O to be signed individually (inside-out),
     # with hardened runtime and a secure timestamp. --deep alone is not sufficient.
@@ -217,7 +244,7 @@ if [ -n "${DEVELOPER_ID_APPLICATION}" ]; then
     DICTY_SIGNED_WITH_DEVELOPER_ID=1
 else
     # --- Local / open-source build: ad-hoc signing ---
-    echo "[*] DEVELOPER_ID_APPLICATION not set: signing Dicty.app ad-hoc (codesign --sign -)..."
+    echo "[*] Signing Dicty.app ad-hoc (codesign --sign -)..."
     codesign --force --deep --options runtime ${ENTITLEMENTS_ARG} --sign - "${APP_DIR}"
 fi
 
