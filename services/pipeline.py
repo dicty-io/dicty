@@ -811,12 +811,11 @@ async def process_transcription(
                 raw_text = parse_spoken_punctuation(raw_text)
                 
             system_prompt = "You are an AI assistant."
-            resolved_author = author_name.strip() if "author_name" in locals() and author_name else ""
-            if not resolved_author:
-                try:
-                    resolved_author = model_manager.get_settings().get("author_name", "").strip()
-                except Exception:
-                    pass
+            resolved_author = ""
+            try:
+                resolved_author = (model_manager.get_settings().get("author_name") or "").strip()
+            except Exception:
+                pass
             
             if custom_prompt_text and custom_prompt_text.strip():
                 system_prompt = custom_prompt_text.strip()

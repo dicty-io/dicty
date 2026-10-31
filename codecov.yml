@@ -1,0 +1,24 @@
+# Codecov configuration
+# https://docs.codecov.com/docs/codecov-yaml
+coverage:
+  status:
+    project:
+      default:
+        target: 50%         # matches the --fail-under=50 floor in tests-and-build.yml
+        threshold: 0.5%     # allow small drops without failing PRs
+    # Patch coverage is disabled: on a CI-only PR the changed lines are workflow
+    # YAML and import fixes that are not unit-testable in isolation, and a red
+    # status there is noise rather than a signal. Project coverage is enforced
+    # by both this check and the --fail-under floor in tests-and-build.yml.
+    patch: false
+
+comment:
+  layout: "reach,diff,flags,files"
+  behavior: default
+  require_changes: false
+  require_base: false
+  require_head: true
+
+ignore:
+  - "tests/**"
+  - "scripts/**"

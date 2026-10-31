@@ -644,8 +644,9 @@ class ModelManager:
             print(f"[*] Using pre-quantized {model_id} ({prequantized_quality}): {url}")
             quality = prequantized_quality
 
-        if target_model.get("filename"):
-            filename = target_model["filename"]
+        if model_data.get("filename"):
+            filename = model_data["filename"]
+            ext = ".gguf" if filename.lower().endswith(".gguf") else ".bin"
         else:
             ext = ".gguf" if url.endswith(".gguf") else ".bin"
             filename = f"ggml-{model_id}{ext}"
