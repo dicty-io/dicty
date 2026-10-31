@@ -262,6 +262,8 @@ class ModelManager:
             clean_id = d.replace("ggml-", "").replace(".bin", "").replace(".gguf", "")
             if clean_id == model_id or d == f"ggml-{model_id}.bin" or d == f"ggml-{model_id}.gguf" or d == f"{model_id}.bin" or d == f"{model_id}.gguf":
                 return True
+            if (d.startswith(f"ggml-{model_id}-") or d.startswith(f"{model_id}-")) and (d.endswith(".bin") or d.endswith(".gguf")):
+                return True
 
         # 4. Check if cached in Hugging Face Hub (for faster-whisper on Windows / CPU)
         if self._is_hf_cached(model_id):
@@ -408,6 +410,19 @@ class ModelManager:
             p = os.path.join(MODELS_DIR, f"ggml-{model_id}{ext}")
             if os.path.isfile(p):
                 return p
+            p_no_prefix = os.path.join(MODELS_DIR, f"{model_id}{ext}")
+            if os.path.isfile(p_no_prefix):
+                return p_no_prefix
+        try:
+            if os.path.exists(MODELS_DIR):
+                for f in os.listdir(MODELS_DIR):
+                    for ext in (".bin", ".gguf"):
+                        if (f.startswith(f"ggml-{model_id}-") or f.startswith(f"{model_id}-")) and f.endswith(ext):
+                            p = os.path.join(MODELS_DIR, f)
+                            if os.path.isfile(p):
+                                return p
+        except Exception:
+            pass
         return None
 
     def detect_file_quality(self, model_id: str):
@@ -636,35 +651,39 @@ class ModelManager:
                     on_complete(model_id, False)
                 return
 
-        # Prefer downloading an upstream pre-quantized file instead of quantizing locally.
-        # (whisper-quantize is not bundled in the packaged app, so local quantization silently
-        # left fp16 models on disk: ~2.5x more RAM and slower inference.)
-        url, prequantized_quality = self._prequantized_url(model_id, url, quality)
-        if prequantized_quality:
-            print(f"[*] Using pre-quantized {model_id} ({prequantized_quality}): {url}")
-            quality = prequantized_quality
-
-        if target_model.get("filename"):
-            filename = target_model["filename"]
-        else:
-            ext = ".gguf" if url.endswith(".gguf") else ".bin"
-            filename = f"ggml-{model_id}{ext}"
-        dest_path = os.path.realpath(os.path.join(MODELS_DIR, filename))
-        if not dest_path.startswith(os.path.realpath(MODELS_DIR)):
-            print(f"[!] Invalid model path for model_id {model_id}")
-            self.downloading.discard(model_id)
-            self.download_progress[model_id] = -1.0
-            if on_complete:
-                on_complete(model_id, False)
-            return
-        
+        dest_path = None
+        part_path = None
         try:
-            with httpx.stream("GET", url, follow_redirects=True) as response:
+            # Prefer downloading an upstream pre-quantized file instead of quantizing locally.
+            # (whisper-quantize is not bundled in the packaged app, so local quantization silently
+            # left fp16 models on disk: ~2.5x more RAM and slower inference.)
+            url, prequantized_quality = self._prequantized_url(model_id, url, quality)
+            if prequantized_quality:
+                print(f"[*] Using pre-quantized {model_id} ({prequantized_quality}): {url}")
+                quality = prequantized_quality
+
+            if model_data.get("filename"):
+                filename = model_data["filename"]
+            else:
+                ext = ".gguf" if url.endswith(".gguf") else ".bin"
+                filename = f"ggml-{model_id}{ext}"
+            dest_path = os.path.realpath(os.path.join(MODELS_DIR, filename))
+            if not dest_path.startswith(os.path.realpath(MODELS_DIR)):
+                print(f"[!] Invalid model path for model_id {model_id}")
+                self.downloading.discard(model_id)
+                self.download_progress[model_id] = -1.0
+                if on_complete:
+                    on_complete(model_id, False)
+                return
+
+            part_path = dest_path + ".part"
+            timeout_config = httpx.Timeout(connect=30.0, read=120.0, write=60.0, pool=30.0)
+            with httpx.stream("GET", url, follow_redirects=True, timeout=timeout_config) as response:
                 response.raise_for_status()
                 total_bytes = int(response.headers.get("content-length", 0))
                 downloaded_bytes = 0
                 
-                with open(dest_path, "wb") as f:
+                with open(part_path, "wb") as f:
                     for chunk in response.iter_bytes(chunk_size=1024*1024):
                         if model_id in self.cancelled_downloads:
                             print(f"[*] Download cancelled for {model_id}")
@@ -679,14 +698,20 @@ class ModelManager:
                                 on_progress(model_id, progress)
                                 
                 if model_id in self.cancelled_downloads:
-                    self.cancelled_downloads.remove(model_id)
+                    self.cancelled_downloads.discard(model_id)
+                    if os.path.exists(part_path):
+                        os.remove(part_path)
                     if os.path.exists(dest_path):
                         os.remove(dest_path)
-                    self.downloading.remove(model_id)
+                    self.downloading.discard(model_id)
                     self.download_progress[model_id] = -1.0
                     if on_complete:
                         on_complete(model_id, False)
                     return
+
+                # Download finished successfully - atomically move part to destination
+                if os.path.exists(part_path):
+                    os.replace(part_path, dest_path)
                                 
                 if not ext == ".gguf" and quality != "f16" and not prequantized_quality:
                     quantize_bin = get_resource_path(os.path.join("bin", "whisper.cpp", "build", "bin", "whisper-quantize"))
@@ -717,6 +742,11 @@ class ModelManager:
                 on_complete(model_id, True)
         except Exception as e:
             print(f"[!] Download failed for {model_id}: {e}")
+            if part_path and os.path.exists(part_path):
+                try:
+                    os.remove(part_path)
+                except Exception:
+                    pass
             self.downloading.discard(model_id)
             self.download_progress[model_id] = -1.0
             if on_complete:

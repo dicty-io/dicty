@@ -103,6 +103,7 @@ class DeepgramLiveSession(StreamSession):
         self._queue: "asyncio.Queue[Optional[bytes]]" = asyncio.Queue()
         self._finals: List[str] = []
         self._failed = False
+        self.auth_failed = False
         self._finalized = asyncio.Event()
         self._closed = False
         self._last_audio = time.monotonic()
@@ -165,6 +166,9 @@ class DeepgramLiveSession(StreamSession):
         except Exception as e:
             if not self._closed:
                 print(f"[!] Deepgram live stream failed: {e}")
+            if "401" in str(e) or "Unauthorized" in str(e) or "INVALID_AUTH" in str(e):
+                self.auth_failed = True
+                print("[!] [DEEPGRAM AUTH ERROR] Invalid or expired credentials (401). Please update your DEEPGRAM_API_KEY in Dicty Settings.")
             self._failed = True
             self._finalized.set()
 

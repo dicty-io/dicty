@@ -368,8 +368,12 @@ async def stop_recording(
                 print(f"[+] {stream_session.label}: final text ready {fin_ms:.0f} ms after stop")
             else:
                 print(f"[*] {stream_session.label} produced no text; falling back to whole-file transcription")
+                final_text = None
     
-    
+    skip_cloud_fallback = False
+    if stream_session is not None and getattr(stream_session, 'auth_failed', False):
+        skip_cloud_fallback = True
+        print(f"[*] Cloud streaming failed authentication (401); skipping doomed REST retry and falling straight to local speech engine.")
     
     set_status("Fetching GitHub context...")
     if final_text:
@@ -405,7 +409,8 @@ async def stop_recording(
             target_app_bundle_id=target_app_bundle_id,
             app_id=effective_app_id,
             mode_id=resolved_mode_id,
-            mode_reason=resolved_mode_reason
+            mode_reason=resolved_mode_reason,
+            skip_cloud=skip_cloud_fallback
         )
     finally:
         if temp_mixed and os.path.exists(temp_mixed):

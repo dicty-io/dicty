@@ -248,8 +248,7 @@ class HistoryManager:
                     if path and _is_safe_audio_to_delete(path) and os.path.exists(path):
                         try: os.remove(path)
                         except Exception: pass
-            with open(paths.HISTORY_FILE, "w") as f:
-                json.dump([], f)
+            self._write_data([])
         return True
 
     def get_retention_settings(self):
@@ -331,8 +330,7 @@ class HistoryManager:
                     kept_records.append(r)
                     
             if deleted_count > 0 or scrubbed_audio_count > 0:
-                with open(paths.HISTORY_FILE, "w") as f:
-                    json.dump(kept_records, f, indent=2)
+                self._write_data(kept_records)
                     
             return {
                 "deleted_records": deleted_count,

@@ -219,6 +219,7 @@ async def process_transcription(
     mode_reason: str = "",
     mode_style: str = None,
     correction_location: str = None,
+    skip_cloud: bool = False,
 ):
     _metrics_t0 = time.perf_counter()
     if (dictation_format_style or "").strip().lower() == "auto" and mode in ("meeting", "focused_meeting"):
@@ -405,7 +406,8 @@ async def process_transcription(
                 translate_to_english=whisper_translate, 
                 enable_auto_completion=enable_auto_completion,
                 with_timestamps=False,
-                provider=llm_provider
+                provider=llm_provider,
+                skip_cloud=skip_cloud
             )
             if not raw_text or raw_text.strip() == "":
                 return {"status": "error", "message": "Transcription failed or empty"}

@@ -21,15 +21,17 @@ def get_whisper_server_cmd():
     
     mm = ModelManager()
     active_model_id = mm.get_active_model()
-    whisper_model_path = os.path.abspath(os.path.join(MODELS_DIR, f"ggml-{active_model_id}.bin"))
-    if not os.path.exists(whisper_model_path):
-        cand_gguf = os.path.abspath(os.path.join(MODELS_DIR, f"ggml-{active_model_id}.gguf"))
-        if os.path.exists(cand_gguf):
-            whisper_model_path = cand_gguf
-        else:
-            downloaded = mm.get_downloaded_models()
-            if downloaded:
-                whisper_model_path = os.path.abspath(os.path.join(MODELS_DIR, downloaded[0]))
+    whisper_model_path = mm.get_model_file_path(active_model_id)
+    if not whisper_model_path or not os.path.exists(whisper_model_path):
+        whisper_model_path = os.path.abspath(os.path.join(MODELS_DIR, f"ggml-{active_model_id}.bin"))
+        if not os.path.exists(whisper_model_path):
+            cand_gguf = os.path.abspath(os.path.join(MODELS_DIR, f"ggml-{active_model_id}.gguf"))
+            if os.path.exists(cand_gguf):
+                whisper_model_path = cand_gguf
+            else:
+                downloaded = mm.get_downloaded_models()
+                if downloaded:
+                    whisper_model_path = os.path.abspath(os.path.join(MODELS_DIR, downloaded[0]))
     
     if not os.path.exists(whisper_server_path) or not os.path.exists(whisper_model_path):
         return None

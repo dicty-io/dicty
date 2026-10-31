@@ -853,11 +853,17 @@ class TranscribeService:
         # 3. Direct Deepgram Provider
         elif model_name.startswith("deepgram/"):
             api_key = env_deepgram.strip()
-                
             if api_key:
                 deepgram_model = model_name.replace("deepgram/", "")
                 dg_host = await asyncio.to_thread(_deepgram_host)
                 url = f"https://{dg_host}/v1/listen?model={deepgram_model}&smart_format=true"
+                if language and language != "auto":
+                    url += f"&language={language}"
+                elif deepgram_model.startswith("nova-3"):
+                    url += "&language=multi"
+                if prompt_str:
+                    for term in [t.strip() for t in prompt_str.split(",") if t.strip()][:50]:
+                        url += f"&keyterm={term}"
                 headers = {"Authorization": f"Token {api_key}", "Content-Type": "audio/wav"}
                 is_deepgram = True
                 print(f"[*] [Cloud STT] Direct Deepgram API routing ({url}) using key {api_key[:8]}...")
@@ -1014,7 +1020,7 @@ class TranscribeService:
                 else:
                     raise
 
-    async def transcribe(self, audio_path: str, vocab_data: list = None, openai_api_key: str = "", openrouter_key: str = "", language: str = "auto", translate_to_english: bool = False, enable_auto_completion: bool = False, with_timestamps: bool = False, provider: str = "") -> str:
+    async def transcribe(self, audio_path: str, vocab_data: list = None, openai_api_key: str = "", openrouter_key: str = "", language: str = "auto", translate_to_english: bool = False, enable_auto_completion: bool = False, with_timestamps: bool = False, provider: str = "", skip_cloud: bool = False) -> str:
         prompt_str = ""
         if vocab_data:
             # Extract canonical target words for initial prompt biasing
@@ -1039,7 +1045,7 @@ class TranscribeService:
         active_model_dict = next((m for m in models if m["id"] == active_model_id), None)
         
         cloud_success = False
-        if active_model_dict and active_model_dict.get("is_cloud", False):
+        if not skip_cloud and active_model_dict and active_model_dict.get("is_cloud", False):
             own = direct_provider_for_model(active_model_id)
             has_api_key = bool(openai_api_key or openrouter_key or get_stt_key("openai") or os.getenv("OPENROUTER_API_KEY")
                                or (own and get_stt_key(own)) or provider == "dicty_cloud")
