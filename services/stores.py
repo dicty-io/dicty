@@ -123,7 +123,7 @@ class HistoryManager:
                 
     def _read_data(self):
         if self._cached_data is not None:
-            return list(self._cached_data)
+            return [dict(x) for x in self._cached_data]
         if not os.path.exists(paths.HISTORY_FILE):
             self._cached_data = []
             return []
@@ -133,26 +133,30 @@ class HistoryManager:
                 if not content:
                     self._cached_data = []
                     return []
-                self._cached_data = json.loads(content)
-                return list(self._cached_data)
+                loaded = json.loads(content)
+                self._cached_data = loaded if isinstance(loaded, list) else []
+                return [dict(x) for x in self._cached_data]
         except Exception as e:
             print(f"[!] Warning reading history.json: {e}")
-            self._cached_data = []
             return []
 
     def _write_data(self, data):
-        self._cached_data = list(data)
         temp_file = f"{paths.HISTORY_FILE}.tmp.{os.getpid()}"
+        persisted = False
         try:
             with open(temp_file, "w", encoding="utf-8") as f:
                 json.dump(data, f)
             os.replace(temp_file, paths.HISTORY_FILE)
+            persisted = True
         except Exception:
             try:
                 with open(paths.HISTORY_FILE, "w", encoding="utf-8") as f:
                     json.dump(data, f)
+                persisted = True
             except Exception as e2:
                 print(f"[!] Error writing history.json: {e2}")
+        if persisted:
+            self._cached_data = [dict(x) for x in data]
 
     def get_all(self):
         with self.lock:

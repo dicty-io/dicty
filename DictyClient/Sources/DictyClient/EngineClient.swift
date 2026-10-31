@@ -286,7 +286,6 @@ class EngineClient: ObservableObject {
     
     @Published var targetApp: NSRunningApplication?
     private static let eventSource = CGEventSource(stateID: .hidSystemState)
-    private static var isAccessibilityTrusted: Bool = AXIsProcessTrusted()
     
     // MARK: - App Rules
     @Published var appRules: [AppRule] = []
@@ -3109,6 +3108,7 @@ class EngineClient: ObservableObject {
                             try? await Task.sleep(nanoseconds: 500_000_000)
                         }
                     }
+                    defer { statusTask.cancel() }
                     
                     EngineEndpoint.shared.authorize(&stopReq)
                     var (data, response) = try await EngineEndpoint.shared.bareSession.data(for: stopReq)
@@ -3117,7 +3117,6 @@ class EngineClient: ObservableObject {
                         EngineEndpoint.shared.authorize(&stopReq)
                         (data, response) = try await EngineEndpoint.shared.bareSession.data(for: stopReq)
                     }
-                    statusTask.cancel()
                     let httpReceiveTime = Date()
                     handleTranscriptionResponse(data: data, stopStartTime: stopStartTime, httpReceiveTime: httpReceiveTime)
                 }
@@ -3680,37 +3679,46 @@ class EngineClient: ObservableObject {
             return
         }
         
-        if !Self.isAccessibilityTrusted {
-            let trusted = AXIsProcessTrusted()
-            if !trusted {
-                let alert = NSAlert()
-                alert.messageText = "Accessibility Permission Required"
-                alert.informativeText = "Dicty needs Accessibility permissions to paste text. If you just updated Dicty, macOS may be holding a stale permission rule."
-                alert.alertStyle = .critical
-                alert.addButton(withTitle: "Open System Settings")
-                alert.addButton(withTitle: "Reset Stale Rule & Open Settings")
-                alert.addButton(withTitle: "Cancel")
-                
-                let response = alert.runModal()
-                if response == .alertSecondButtonReturn {
-                    let process = Process()
-                    process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
-                    process.arguments = ["reset", "Accessibility", "com.antigravity.Dicty"]
-                    try? process.run()
+        if !AXIsProcessTrusted() {
+            let alert = NSAlert()
+            alert.messageText = "Accessibility Permission Required"
+            alert.informativeText = "Dicty needs Accessibility permissions to paste text. If you just updated Dicty, macOS may be holding a stale permission rule."
+            alert.alertStyle = .critical
+            alert.addButton(withTitle: "Open System Settings")
+            alert.addButton(withTitle: "Reset Stale Rule & Open Settings")
+            alert.addButton(withTitle: "Cancel")
+            
+            let response = alert.runModal()
+            if response == .alertSecondButtonReturn {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+                process.arguments = ["reset", "Accessibility", "com.antigravity.Dicty"]
+                try? process.run()
+                DispatchQueue.global(qos: .utility).async {
                     process.waitUntilExit()
                 }
-                
-                if response != .alertThirdButtonReturn {
-                    let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-                    _ = AXIsProcessTrustedWithOptions(options)
-                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-                onPasted?(false)
-                return
             }
-            Self.isAccessibilityTrusted = true
+            
+            if response != .alertThirdButtonReturn {
+                let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+                _ = AXIsProcessTrustedWithOptions(options)
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+            onPasted?(false)
+            return
+        }
+        
+        // Brief bounded wait (max 40ms) only if targetApp is not yet frontmost
+        if let target = self.targetApp, !target.isTerminated {
+            let targetPid = target.processIdentifier
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier != targetPid {
+                for _ in 0..<8 {
+                    if NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPid { break }
+                    usleep(5_000) // 5 ms
+                }
+            }
         }
         
         let vKeyCode: CGKeyCode = 9 // 'v'

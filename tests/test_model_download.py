@@ -16,7 +16,21 @@ from services.model_manager import ModelManager
 
 class TestModelDownload(unittest.TestCase):
     def setUp(self):
+        self.tmp_data = tempfile.mkdtemp()
+        self.patch_data = patch("services.model_manager.DATA_DIR", self.tmp_data)
+        self.patch_models = patch("services.model_manager.MODELS_DIR", os.path.join(self.tmp_data, "models"))
+        self.patch_settings = patch("services.model_manager.SETTINGS_FILE", os.path.join(self.tmp_data, "settings.json"))
+        self.patch_data.start()
+        self.patch_models.start()
+        self.patch_settings.start()
         self.mm = ModelManager()
+
+    def tearDown(self):
+        self.patch_settings.stop()
+        self.patch_models.stop()
+        self.patch_data.stop()
+        import shutil
+        shutil.rmtree(self.tmp_data, ignore_errors=True)
 
     def test_prequantized_url_small_en(self):
         url, quality = self.mm._prequantized_url(
@@ -64,6 +78,8 @@ class TestModelDownload(unittest.TestCase):
 
             with patch("services.model_manager.MODELS_DIR", tmp_dir), \
                  patch.object(self.mm, "MODELS_DIR", tmp_dir), \
+                 patch("sys.platform", "darwin"), \
+                 patch("platform.system", return_value="Darwin"), \
                  patch("httpx.stream") as mock_stream, \
                  patch.object(self.mm, "set_model_quality"):
 
@@ -100,6 +116,8 @@ class TestModelDownload(unittest.TestCase):
 
             with patch("services.model_manager.MODELS_DIR", tmp_dir), \
                  patch.object(self.mm, "MODELS_DIR", tmp_dir), \
+                 patch("sys.platform", "darwin"), \
+                 patch("platform.system", return_value="Darwin"), \
                  patch("httpx.stream", side_effect=httpx.ConnectError("Network unreachable")):
 
                 self.mm._download_worker(model_data, "q5_0", None, on_complete)

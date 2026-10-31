@@ -166,9 +166,11 @@ class DeepgramLiveSession(StreamSession):
         except Exception as e:
             if not self._closed:
                 print(f"[!] Deepgram live stream failed: {e}")
-            if "401" in str(e) or "Unauthorized" in str(e) or "INVALID_AUTH" in str(e):
+            status = getattr(getattr(e, 'response', None), 'status_code', None) or getattr(e, 'status_code', None)
+            if status in (401, 403) or "401" in str(e) or "Unauthorized" in str(e) or "INVALID_AUTH" in str(e):
                 self.auth_failed = True
-                print("[!] [DEEPGRAM AUTH ERROR] Invalid or expired credentials (401). Please update your DEEPGRAM_API_KEY in Dicty Settings.")
+                hint = "Dicty Cloud token / login" if self.relay_base_url else "DEEPGRAM_API_KEY in Dicty Settings"
+                print(f"[!] [CLOUD AUTH ERROR] Authentication failed ({status or 401}). Please check your {hint}.")
             self._failed = True
             self._finalized.set()
 

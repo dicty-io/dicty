@@ -232,19 +232,24 @@ async def stop_recording(
     # 0. Zero-copy local client audio (same-machine, bypasses multipart binary upload and disk re-writes)
     if audio_file_path and isinstance(audio_file_path, str) and os.path.exists(audio_file_path):
         real_p = os.path.realpath(audio_file_path)
+        def _is_contained(p: str, parent: str) -> bool:
+            try:
+                return os.path.commonpath([p, parent]) == parent
+            except Exception:
+                return False
+
         allowed_dirs = [
             os.path.realpath(tempfile.gettempdir()),
-            os.path.realpath("/private/var/folders"),
-            os.path.realpath("/var/folders"),
             os.path.realpath(DATA_DIR),
             os.path.realpath(INPUT_DIR)
         ]
-        if any(real_p.startswith(d) for d in allowed_dirs) and real_p.lower().endswith(".wav") and os.path.getsize(real_p) > 256:
+        if any(_is_contained(real_p, d) for d in allowed_dirs) and real_p.lower().endswith(".wav") and os.path.getsize(real_p) > 256:
             effective_client_audio = real_p
             success = True
             if recorder.is_recording:
-                if mode in ("meeting", "focused_meeting"):
-                    await asyncio.to_thread(recorder.stop, AUDIO_PATH + ".discard", loopback_output_path=SYSTEM_AUDIO_PATH, use_vad_streaming=(use_vad_streaming.lower() == "true"))
+                needs_await = bool(recorder.stream_session is not None or (use_vad_streaming.lower() == "true") or mode in ("meeting", "focused_meeting"))
+                if needs_await:
+                    await asyncio.to_thread(recorder.stop, AUDIO_PATH + ".discard", loopback_output_path=SYSTEM_AUDIO_PATH if mode in ("meeting", "focused_meeting") else None, use_vad_streaming=(use_vad_streaming.lower() == "true"))
                 else:
                     asyncio.create_task(asyncio.to_thread(recorder.stop, AUDIO_PATH + ".discard", use_vad_streaming=False))
 
@@ -258,8 +263,9 @@ async def stop_recording(
                     f_out.write(uploaded_bytes)
                 success = True
                 if recorder.is_recording:
-                    if mode in ("meeting", "focused_meeting"):
-                        await asyncio.to_thread(recorder.stop, AUDIO_PATH + ".discard", loopback_output_path=SYSTEM_AUDIO_PATH, use_vad_streaming=(use_vad_streaming.lower() == "true"))
+                    needs_await = bool(recorder.stream_session is not None or (use_vad_streaming.lower() == "true") or mode in ("meeting", "focused_meeting"))
+                    if needs_await:
+                        await asyncio.to_thread(recorder.stop, AUDIO_PATH + ".discard", loopback_output_path=SYSTEM_AUDIO_PATH if mode in ("meeting", "focused_meeting") else None, use_vad_streaming=(use_vad_streaming.lower() == "true"))
                     else:
                         asyncio.create_task(asyncio.to_thread(recorder.stop, AUDIO_PATH + ".discard", use_vad_streaming=False))
         except Exception as up_err:

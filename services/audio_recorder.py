@@ -683,8 +683,9 @@ class AudioRecorder:
             
             if len(self.full_audio_history) == 0:
                 if loopback_output_path and os.path.exists(loopback_output_path) and os.path.getsize(loopback_output_path) > 100:
-                    silence_pad = np.zeros(int(self.sample_rate * 0.5), dtype=np.int16)
-                    sf.write(output_path, silence_pad, self.sample_rate, subtype='PCM_16')
+                    if output_path and not output_path.endswith(".discard"):
+                        silence_pad = np.zeros(int(self.sample_rate * 0.5), dtype=np.int16)
+                        sf.write(output_path, silence_pad, self.sample_rate, subtype='PCM_16')
                     return True
                 print("[!] No voice audio recorded.")
                 return False

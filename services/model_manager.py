@@ -262,7 +262,7 @@ class ModelManager:
             clean_id = d.replace("ggml-", "").replace(".bin", "").replace(".gguf", "")
             if clean_id == model_id or d == f"ggml-{model_id}.bin" or d == f"ggml-{model_id}.gguf" or d == f"{model_id}.bin" or d == f"{model_id}.gguf":
                 return True
-            if (d.startswith(f"ggml-{model_id}-") or d.startswith(f"{model_id}-")) and (d.endswith(".bin") or d.endswith(".gguf")):
+            if self._is_model_variant(d, model_id):
                 return True
 
         # 4. Check if cached in Hugging Face Hub (for faster-whisper on Windows / CPU)
@@ -404,6 +404,23 @@ class ModelManager:
 
     # ggml ftype -> quality label (whisper.cpp ggml_ftype, modulo GGML_QNT_VERSION_FACTOR=1000)
     _GGML_FTYPES = {0: "f32", 1: "f16", 2: "q4_0", 3: "q4_1", 7: "q8_0", 8: "q5_0", 9: "q5_1"}
+    _RECOGNIZED_QUALITY_VARIANTS = {
+        "q4_0", "q4_1", "q5_0", "q5_1", "q8_0", "f16", "f32",
+        "q2_k", "q3_k_s", "q3_k_m", "q3_k_l", "q4_k_s", "q4_k_m", "q5_k_s", "q5_k_m", "q6_k", "q8_k"
+    }
+
+    @classmethod
+    def _is_model_variant(cls, filename: str, model_id: str) -> bool:
+        """Checks if filename matches model_id with a recognized quality variant,
+        preventing large-v3 from matching large-v3-turbo."""
+        for prefix in (f"ggml-{model_id}-", f"{model_id}-"):
+            if filename.startswith(prefix):
+                for ext in (".bin", ".gguf"):
+                    if filename.endswith(ext):
+                        suffix = filename[len(prefix):-len(ext)].lower()
+                        if suffix in cls._RECOGNIZED_QUALITY_VARIANTS or (suffix.startswith("q") and any(c.isdigit() for c in suffix)):
+                            return True
+        return False
 
     def get_model_file_path(self, model_id: str):
         for ext in (".bin", ".gguf"):
@@ -416,11 +433,10 @@ class ModelManager:
         try:
             if os.path.exists(MODELS_DIR):
                 for f in os.listdir(MODELS_DIR):
-                    for ext in (".bin", ".gguf"):
-                        if (f.startswith(f"ggml-{model_id}-") or f.startswith(f"{model_id}-")) and f.endswith(ext):
-                            p = os.path.join(MODELS_DIR, f)
-                            if os.path.isfile(p):
-                                return p
+                    if self._is_model_variant(f, model_id):
+                        p = os.path.join(MODELS_DIR, f)
+                        if os.path.isfile(p):
+                            return p
         except Exception:
             pass
         return None
@@ -667,6 +683,7 @@ class ModelManager:
             else:
                 ext = ".gguf" if url.endswith(".gguf") else ".bin"
                 filename = f"ggml-{model_id}{ext}"
+            ext = os.path.splitext(filename)[1] or (".gguf" if url.endswith(".gguf") else ".bin")
             dest_path = os.path.realpath(os.path.join(MODELS_DIR, filename))
             if not dest_path.startswith(os.path.realpath(MODELS_DIR)):
                 print(f"[!] Invalid model path for model_id {model_id}")

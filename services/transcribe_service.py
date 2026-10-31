@@ -8,6 +8,7 @@ import local_whisper
 import subprocess
 import shutil
 import multiprocessing
+from urllib.parse import quote_plus
 from transcript_join import join_transcript_parts, normalize_whisper_text
 
 # PyTorch 2.6+ compatibility for openai-whisper
@@ -856,14 +857,14 @@ class TranscribeService:
             if api_key:
                 deepgram_model = model_name.replace("deepgram/", "")
                 dg_host = await asyncio.to_thread(_deepgram_host)
-                url = f"https://{dg_host}/v1/listen?model={deepgram_model}&smart_format=true"
+                url = f"https://{dg_host}/v1/listen?model={quote_plus(deepgram_model)}&smart_format=true"
                 if language and language != "auto":
-                    url += f"&language={language}"
+                    url += f"&language={quote_plus(language)}"
                 elif deepgram_model.startswith("nova-3"):
                     url += "&language=multi"
-                if prompt_str:
+                if prompt_str and deepgram_model.startswith("nova-3"):
                     for term in [t.strip() for t in prompt_str.split(",") if t.strip()][:50]:
-                        url += f"&keyterm={term}"
+                        url += f"&keyterm={quote_plus(term)}"
                 headers = {"Authorization": f"Token {api_key}", "Content-Type": "audio/wav"}
                 is_deepgram = True
                 print(f"[*] [Cloud STT] Direct Deepgram API routing ({url}) using key {api_key[:8]}...")
