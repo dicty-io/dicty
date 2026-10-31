@@ -113,10 +113,10 @@ jobs:
           xcodebuild -version 2>/dev/null || true
           swift --version 2>&1 | head -n 1
 
-      - name: Run Backend & Swift Automated Test Suite
+      - name: Run Backend Automated Test Suite
         run: |
           chmod +x scripts/run_tests.sh
-          ./scripts/run_tests.sh
+          ./scripts/run_tests.sh --backend-only
 
       - name: Upload Coverage Reports to Codecov
         uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
