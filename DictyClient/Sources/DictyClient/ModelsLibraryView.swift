@@ -456,426 +456,450 @@ struct ModelsLibraryView: View {
             .cornerRadius(8)
         }
         .buttonStyle(.plain)
+    }    // MARK: - Subviews for Compiler Performance
+
+    private var headerView: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Text("Available Models")
+                .font(.system(.title2, design: .rounded).weight(.semibold))
+                .foregroundColor(.primary)
+            
+            FeatureHelpButton(topic: .models)
+            
+            Spacer(minLength: 16)
+            
+            Button(action: {
+                engineClient.openModelsFolder()
+            }) {
+                Image(systemName: "folder")
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundColor(isHoveringFolder ? .primary : .secondary)
+                    .padding(4)
+                    .background(isHoveringFolder ? Color.primary.opacity(0.08) : Color.clear)
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .onHover { isHoveringFolder = $0 }
+            .help("Open models folder")
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
+        .padding(.bottom, 8)
+    }
+
+    private var secondaryBarView: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 10) {
+                languageBarContent
+                Spacer(minLength: 12)
+                dictyCloudHeaderView
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                languageBarContent
+                HStack {
+                    Spacer()
+                    dictyCloudHeaderView
+                }
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 12)
+    }
+
+    @ViewBuilder
+    private var languageNoticeView: some View {
+        if let notice = languageSwitchNotice {
+            HStack(spacing: 6) {
+                Image(systemName: "info.circle.fill")
+                    .foregroundColor(.appAccent)
+                Text(notice)
+                    .font(.system(.caption, design: .rounded).weight(.medium))
+                    .foregroundColor(.primary)
+                Spacer()
+                Button(action: { withAnimation { languageSwitchNotice = nil } }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color.appAccent.opacity(0.12))
+            .cornerRadius(8)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 8)
+            .transition(.opacity)
+        }
+    }
+
+    private var speechToTextLocalSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Speech to text — on your Mac")
+                    .font(.system(.headline, design: .rounded).weight(.bold))
+                    .foregroundColor(.primary)
+                Spacer()
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 4)
+            
+            // Language-specific models if available
+            if !showAllModelVariants && !languageSpecificModels.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(languageSpecificGroupName)
+                            .font(.system(.caption, design: .rounded).weight(.bold))
+                            .foregroundColor(.appAccent)
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 10))
+                            .foregroundColor(.appAccent)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.top, 4)
+                    
+                    ModelsTableHeaderRow()
+                    
+                    ForEach(languageSpecificModels) { model in
+                        UnifiedModelRowView(
+                            model: model,
+                            isActive: engineClient.activeModel == model.id,
+                            onActivate: { hasCustomizedModel = true; engineClient.setActiveModel(id: model.id) }
+                        )
+                    }
+                }
+                .padding(.bottom, 6)
+            }
+            
+            ModelsTableHeaderRow()
+            
+            if showAllModelVariants {
+                ForEach(localVoiceModels) { model in
+                    UnifiedModelRowView(
+                        model: model,
+                        isActive: engineClient.activeModel == model.id,
+                        onActivate: { hasCustomizedModel = true; engineClient.setActiveModel(id: model.id) }
+                    )
+                }
+            } else {
+                ForEach(filteredFamilies) { family in
+                    ModelFamilyCardView(
+                        family: family,
+                        models: engineClient.models
+                    )
+                }
+            }
+        }
+        .padding(8)
+        .background(Color.primary.opacity(0.02))
+        .cornerRadius(10)
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.06), lineWidth: 1))
+    }
+
+    @ViewBuilder
+    private var speechToTextCloudSection: some View {
+        if !cloudVoiceModels.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Speech to text — cloud")
+                        .font(.system(.headline, design: .rounded).weight(.bold))
+                        .foregroundColor(.primary)
+                    Spacer()
+                }
+                .padding(.horizontal, 8)
+                .padding(.top, 4)
+                
+                ModelsTableHeaderRow(showMetrics: false)
+                
+                ForEach(cloudVoiceModels) { model in
+                    UnifiedModelRowView(
+                        model: model,
+                        isActive: engineClient.activeModel == model.id,
+                        onActivate: {
+                            hasCustomizedModel = true
+                            if engineClient.canUseCloud {
+                                engineClient.setActiveModel(id: model.id)
+                            }
+                        }
+                    )
+                }
+            }
+            .padding(8)
+            .background(Color.primary.opacity(0.02))
+            .cornerRadius(10)
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.06), lineWidth: 1))
+        }
+    }
+
+    private var textModelsLocalSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Text models — on your Mac")
+                    .font(.system(.headline, design: .rounded).weight(.bold))
+                    .foregroundColor(.primary)
+                Spacer()
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 4)
+            
+            ModelsTableHeaderRow()
+            
+            ForEach(localTextModels) { model in
+                let isModelActive = (llmProvider == "local" || modesStore.capabilities?.aiLocation == "local") &&
+                    (engineClient.activeTextModel == model.id || (engineClient.activeTextModel.isEmpty && model.id == "qwen2.5-1.5b-instruct"))
+                UnifiedModelRowView(
+                    model: model,
+                    isActive: isModelActive,
+                    onActivate: {
+                        hasCustomizedModel = true
+                        llmModel = model.id
+                        llmProvider = "local"
+                        engineClient.setActiveTextModel(id: model.id)
+                    }
+                )
+            }
+        }
+        .padding(8)
+        .background(Color.primary.opacity(0.02))
+        .cornerRadius(10)
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.06), lineWidth: 1))
+        .id("local_text_models_section")
+    }
+
+    private var displayCloudModels: [DictyModel] {
+        var list = cloudTextModels.filter { $0.is_cloud == true }
+        if !llmModel.isEmpty &&
+            llmProvider != "local" &&
+            !llmModel.hasSuffix(".gguf") &&
+            llmModel.contains("/") &&
+            !list.contains(where: { $0.id == llmModel }) &&
+            !localTextModels.contains(where: { $0.id == llmModel }) {
+            let customActive = DictyModel(
+                id: llmModel,
+                name: ProjectsView.friendlyModelName(for: llmModel),
+                size: "Cloud",
+                speed: 0.95,
+                accuracy: 0.99,
+                is_downloaded: false,
+                is_cloud: true,
+                category: "text",
+                description: "Selected from OpenRouter Catalog",
+                supports_translation: true
+            )
+            list.insert(customActive, at: 0)
+        }
+        if showAllCloudTextModels { return list }
+        let defaultPrefix = Array(list.prefix(4))
+        if let active = list.first(where: { $0.id == llmModel && $0.is_cloud == true }), !defaultPrefix.contains(where: { $0.id == llmModel }) {
+            return defaultPrefix + [active]
+        }
+        return defaultPrefix
+    }
+
+    @ViewBuilder
+    private var textModelsCloudSection: some View {
+        if !cloudTextModels.isEmpty || (!llmModel.isEmpty && llmProvider != "local" && llmModel.contains("/")) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Text models — cloud")
+                        .font(.system(.headline, design: .rounded).weight(.bold))
+                        .foregroundColor(.primary)
+                    Spacer()
+                    Button(action: {
+                        showOpenRouterExplorer = true
+                    }) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 10, weight: .bold))
+                            Text("Explore 400+ Models")
+                                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        }
+                        .foregroundColor(.primary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Color.primary.opacity(0.06))
+                        .cornerRadius(6)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 8)
+                .padding(.top, 4)
+                
+                ModelsTableHeaderRow(showMetrics: false)
+                
+                ForEach(displayCloudModels) { model in
+                    let isCloudActive = llmProvider != "local" && modesStore.capabilities?.aiLocation != "local" && llmModel == model.id
+                    UnifiedModelRowView(
+                        model: model,
+                        isActive: isCloudActive,
+                        onActivate: {
+                            hasCustomizedModel = true
+                            if engineClient.canUseCloud {
+                                llmModel = model.id
+                                if llmProvider == "dicty_cloud" && !engineClient.isLoggedIn {
+                                    llmProvider = "openrouter"
+                                } else if llmProvider == "local" {
+                                    llmProvider = "openrouter"
+                                }
+                            }
+                        }
+                    )
+                }
+                
+                if cloudTextModels.count > 4 {
+                    Button(action: {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                            showAllCloudTextModels.toggle()
+                        }
+                    }) {
+                        HStack(spacing: 4) {
+                            Text(showAllCloudTextModels ? "Show Less Models" : "Show More Models")
+                                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            Image(systemName: showAllCloudTextModels ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 9, weight: .bold))
+                        }
+                        .foregroundColor(.dictySecondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(Color.primary.opacity(0.04))
+                        .cornerRadius(6)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 4)
+                    .padding(.horizontal, 8)
+                }
+            }
+            .padding(8)
+            .background(Color.primary.opacity(0.02))
+            .cornerRadius(10)
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.06), lineWidth: 1))
+        }
+    }
+
+    private var performanceSettingsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                    isAdvancedSettingsExpanded.toggle()
+                }
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.dictySecondary)
+                        .rotationEffect(.degrees(isAdvancedSettingsExpanded ? 90 : 0))
+                    
+                    Image(systemName: "gearshape.2")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.appAccent)
+                    
+                    Text("Performance")
+                        .font(.system(.subheadline, design: .rounded).weight(.bold))
+                        .foregroundColor(.primary)
+                    
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            
+            if isAdvancedSettingsExpanded {
+                Divider().opacity(0.4)
+                
+                HStack(spacing: 12) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "memorychip")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.appAccent)
+                            .frame(width: 18, alignment: .center)
+                        
+                        Text("Keep model in RAM (Fast)")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.primary)
+                            .fixedSize(horizontal: true, vertical: false)
+                        
+                        InfoSign(text: "Keeps speech recognition ready for instant, zero-delay typing. If turned off, it takes a couple of seconds to warm up before each recording, but saves computer memory.")
+                    }
+                    
+                    Spacer(minLength: 12)
+                    
+                    Toggle("", isOn: engineClient.$keepModelInMemory)
+                        .labelsHidden()
+                        .toggleStyle(SwitchToggleStyle(tint: .appAccent))
+                        .controlSize(.small)
+                        .onChange(of: engineClient.keepModelInMemory) { _, newValue in
+                            ProfileManager.shared.updateActiveProfileModels(keepModelInMemory: newValue)
+                            engineClient.updateMemoryMode()
+                        }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+            }
+        }
+        .background(Color.primary.opacity(0.02))
+        .cornerRadius(10)
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.06), lineWidth: 1))
+        .padding(.top, 8)
+        .padding(.bottom, 24)
+    }
+
+    @ViewBuilder
+    private var chooseModelsSections: some View {
+        speechToTextLocalSection
+        speechToTextCloudSection
+        textModelsLocalSection
+        textModelsCloudSection
+        performanceSettingsSection
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header: Title and Controls
-            HStack(alignment: .center, spacing: 10) {
-                Text("Available Models")
-                    .font(.system(.title2, design: .rounded).weight(.semibold))
-                    .foregroundColor(.primary)
-                
-                FeatureHelpButton(topic: .models)
-                
-                Spacer(minLength: 16)
-                
-                Button(action: {
-                    engineClient.openModelsFolder()
-                }) {
-                    Image(systemName: "folder")
-                        .font(.system(size: 15, weight: .regular))
-                        .foregroundColor(isHoveringFolder ? .primary : .secondary)
-                        .padding(4)
-                        .background(isHoveringFolder ? Color.primary.opacity(0.08) : Color.clear)
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .onHover { isHoveringFolder = $0 }
-                .help("Open models folder")
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            .padding(.bottom, 8)
-            
-            // Secondary Bar: Language on left, Dicty Cloud status on right
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .center, spacing: 10) {
-                    languageBarContent
-                    Spacer(minLength: 12)
-                    dictyCloudHeaderView
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    languageBarContent
-                    HStack {
-                        Spacer()
-                        dictyCloudHeaderView
-                    }
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 12)
-            
-            if let notice = languageSwitchNotice {
-                HStack(spacing: 6) {
-                    Image(systemName: "info.circle.fill")
-                        .foregroundColor(.appAccent)
-                    Text(notice)
-                        .font(.system(.caption, design: .rounded).weight(.medium))
-                        .foregroundColor(.primary)
-                    Spacer()
-                    Button(action: { withAnimation { languageSwitchNotice = nil } }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Color.appAccent.opacity(0.12))
-                .cornerRadius(8)
-                .padding(.horizontal, 20)
-                .padding(.bottom, 8)
-                .transition(.opacity)
-            }
-            
+            headerView
+            secondaryBarView
+            languageNoticeView
             Divider()
             
             // Models List
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 20) {
-                    AILocationCard(store: modesStore, modelsInUse: modelsInUse, onExpandCustom: {
-                        withAnimation(.easeInOut(duration: 0.18)) {
-                            chooseModelsExpanded = true
-                        }
-                    })
-                    
-                    chooseModelsHeader
-                    
-                    if chooseModelsExpanded {
-                    // 1. SPEECH TO TEXT — ON YOUR MAC
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text("Speech to text — on your Mac")
-                                .font(.system(.headline, design: .rounded).weight(.bold))
-                                .foregroundColor(.primary)
-                            Spacer()
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.top, 4)
-                        
-                        // Language-specific models if available
-                        if !showAllModelVariants && !languageSpecificModels.isEmpty {
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack(spacing: 6) {
-                                    Text(languageSpecificGroupName)
-                                        .font(.system(.caption, design: .rounded).weight(.bold))
-                                        .foregroundColor(.appAccent)
-                                    Image(systemName: "sparkles")
-                                        .font(.system(size: 10))
-                                        .foregroundColor(.appAccent)
-                                }
-                                .padding(.horizontal, 8)
-                                .padding(.top, 4)
-                                
-                                ModelsTableHeaderRow()
-                                
-                                ForEach(languageSpecificModels) { model in
-                                    UnifiedModelRowView(
-                                        model: model,
-                                        isActive: engineClient.activeModel == model.id,
-                                        onActivate: { hasCustomizedModel = true; engineClient.setActiveModel(id: model.id) }
-                                    )
-                                }
+                        AILocationCard(store: modesStore, modelsInUse: modelsInUse, onExpandCustom: {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                chooseModelsExpanded = true
                             }
-                            .padding(.bottom, 6)
-                        }
+                        })
                         
-                        ModelsTableHeaderRow()
+                        chooseModelsHeader
                         
-                        if showAllModelVariants {
-                            ForEach(localVoiceModels) { model in
-                                UnifiedModelRowView(
-                                    model: model,
-                                    isActive: engineClient.activeModel == model.id,
-                                    onActivate: { hasCustomizedModel = true; engineClient.setActiveModel(id: model.id) }
-                                )
-                            }
-                        } else {
-                            ForEach(filteredFamilies) { family in
-                                ModelFamilyCardView(
-                                    family: family,
-                                    models: engineClient.models
-                                )
-                            }
+                        if chooseModelsExpanded {
+                            chooseModelsSections
                         }
                     }
-                    .padding(8)
-                    .background(Color.primary.opacity(0.02))
-                    .cornerRadius(10)
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.06), lineWidth: 1))
-                    
-                    // 2. SPEECH TO TEXT — CLOUD
-                    if !cloudVoiceModels.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text("Speech to text — cloud")
-                                    .font(.system(.headline, design: .rounded).weight(.bold))
-                                    .foregroundColor(.primary)
-                                Spacer()
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.top, 4)
-                            
-                            ModelsTableHeaderRow(showMetrics: false)
-                            
-                            ForEach(cloudVoiceModels) { model in
-                                UnifiedModelRowView(
-                                    model: model,
-                                    isActive: engineClient.activeModel == model.id,
-                                    onActivate: {
-                                        hasCustomizedModel = true
-                                        if engineClient.canUseCloud {
-                                            engineClient.setActiveModel(id: model.id)
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                        .padding(8)
-                        .background(Color.primary.opacity(0.02))
-                        .cornerRadius(10)
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.06), lineWidth: 1))
-                    }
-                    
-                    // 3. TEXT MODELS — ON YOUR MAC
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Text models — on your Mac")
-                                .font(.system(.headline, design: .rounded).weight(.bold))
-                                .foregroundColor(.primary)
-                            Spacer()
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.top, 4)
-                        
-                        ModelsTableHeaderRow()
-                        
-                        ForEach(localTextModels) { model in
-                            let isModelActive = (llmProvider == "local" || modesStore.capabilities?.aiLocation == "local") &&
-                                (engineClient.activeTextModel == model.id || (engineClient.activeTextModel.isEmpty && model.id == "qwen2.5-1.5b-instruct"))
-                            UnifiedModelRowView(
-                                model: model,
-                                isActive: isModelActive,
-                                onActivate: {
-                                    hasCustomizedModel = true
-                                    llmModel = model.id
-                                    llmProvider = "local"
-                                    engineClient.setActiveTextModel(id: model.id)
-                                }
-                            )
-                        }
-                    }
-                    .padding(8)
-                    .background(Color.primary.opacity(0.02))
-                    .cornerRadius(10)
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.06), lineWidth: 1))
-                    .id("local_text_models_section")
-                    
-                    // 4. TEXT MODELS — CLOUD
-                    if !cloudTextModels.isEmpty || (!llmModel.isEmpty && llmProvider != "local" && llmModel.contains("/")) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text("Text models — cloud")
-                                    .font(.system(.headline, design: .rounded).weight(.bold))
-                                    .foregroundColor(.primary)
-                                Spacer()
-                                Button(action: {
-                                    showOpenRouterExplorer = true
-                                }) {
-                                    HStack(spacing: 5) {
-                                        Image(systemName: "sparkles")
-                                            .font(.system(size: 10, weight: .bold))
-                                        Text("Explore 400+ Models")
-                                            .font(.system(size: 11, weight: .semibold, design: .rounded))
-                                    }
-                                    .foregroundColor(.primary)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 4)
-                                    .background(Color.primary.opacity(0.06))
-                                    .cornerRadius(6)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.top, 4)
-                            
-                            ModelsTableHeaderRow(showMetrics: false)
-                            
-                            let displayCloudModels: [DictyModel] = {
-                                var list = cloudTextModels.filter { $0.is_cloud == true }
-                                if !llmModel.isEmpty &&
-                                    llmProvider != "local" &&
-                                    !llmModel.hasSuffix(".gguf") &&
-                                    llmModel.contains("/") &&
-                                    !list.contains(where: { $0.id == llmModel }) &&
-                                    !localTextModels.contains(where: { $0.id == llmModel }) {
-                                    let customActive = DictyModel(
-                                        id: llmModel,
-                                        name: ProjectsView.friendlyModelName(for: llmModel),
-                                        size: "Cloud",
-                                        speed: 0.95,
-                                        accuracy: 0.99,
-                                        is_downloaded: false,
-                                        is_cloud: true,
-                                        category: "text",
-                                        description: "Selected from OpenRouter Catalog",
-                                        supports_translation: true
-                                    )
-                                    list.insert(customActive, at: 0)
-                                }
-                                if showAllCloudTextModels { return list }
-                                let defaultPrefix = Array(list.prefix(4))
-                                if let active = list.first(where: { $0.id == llmModel && $0.is_cloud == true }), !defaultPrefix.contains(where: { $0.id == llmModel }) {
-                                    return defaultPrefix + [active]
-                                }
-                                return defaultPrefix
-                            }()
-                            
-                            ForEach(displayCloudModels) { model in
-                                let isCloudActive = llmProvider != "local" && modesStore.capabilities?.aiLocation != "local" && llmModel == model.id
-                                UnifiedModelRowView(
-                                    model: model,
-                                    isActive: isCloudActive,
-                                    onActivate: {
-                                        hasCustomizedModel = true
-                                        if engineClient.canUseCloud {
-                                            llmModel = model.id
-                                            if llmProvider == "dicty_cloud" && !engineClient.isLoggedIn {
-                                                llmProvider = "openrouter"
-                                            } else if llmProvider == "local" {
-                                                llmProvider = "openrouter"
-                                            }
-                                        }
-                                    }
-                                )
-                            }
-                            
-                            if cloudTextModels.count > 4 {
-                                Button(action: {
-                                    withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                                        showAllCloudTextModels.toggle()
-                                    }
-                                }) {
-                                    HStack(spacing: 4) {
-                                        Text(showAllCloudTextModels ? "Show Less Models" : "Show More Models")
-                                            .font(.system(size: 11, weight: .semibold, design: .rounded))
-                                        Image(systemName: showAllCloudTextModels ? "chevron.up" : "chevron.down")
-                                            .font(.system(size: 9, weight: .bold))
-                                    }
-                                    .foregroundColor(.dictySecondary)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 6)
-                                    .background(Color.primary.opacity(0.04))
-                                    .cornerRadius(6)
-                                }
-                                .buttonStyle(.plain)
-                                .padding(.top, 4)
-                                .padding(.horizontal, 8)
-                            }
-                        }
-                        .padding(8)
-                        .background(Color.primary.opacity(0.02))
-                        .cornerRadius(10)
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.06), lineWidth: 1))
-                    }
-
-
-                    
-                    // Advanced Model Settings Section (Collapsed / folded by default)
-                    VStack(alignment: .leading, spacing: 0) {
-                        Button(action: {
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                                isAdvancedSettingsExpanded.toggle()
-                            }
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(.dictySecondary)
-                                    .rotationEffect(.degrees(isAdvancedSettingsExpanded ? 90 : 0))
-                                
-                                Image(systemName: "gearshape.2")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(.appAccent)
-                                
-                                Text("Performance")
-                                    .font(.system(.subheadline, design: .rounded).weight(.bold))
-                                    .foregroundColor(.primary)
-                                
-                                Spacer()
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        
-                        if isAdvancedSettingsExpanded {
-                            Divider().opacity(0.4)
-                            
-                            HStack(spacing: 12) {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "memorychip")
-                                        .font(.system(size: 13, weight: .semibold))
-                                        .foregroundColor(.appAccent)
-                                        .frame(width: 18, alignment: .center)
-                                    
-                                    Text("Keep model in RAM (Fast)")
-                                        .font(.system(size: 13, weight: .medium))
-                                        .foregroundColor(.primary)
-                                        .fixedSize(horizontal: true, vertical: false)
-                                    
-                                    InfoSign(text: "Keeps speech recognition ready for instant, zero-delay typing. If turned off, it takes a couple of seconds to warm up before each recording, but saves computer memory.")
-                                }
-                                
-                                Spacer(minLength: 12)
-                                
-                                Toggle("", isOn: engineClient.$keepModelInMemory)
-                                    .labelsHidden()
-                                    .toggleStyle(SwitchToggleStyle(tint: .appAccent))
-                                    .controlSize(.small)
-                                    .onChange(of: engineClient.keepModelInMemory) { _, newValue in
-                                        ProfileManager.shared.updateActiveProfileModels(keepModelInMemory: newValue)
-                                        engineClient.updateMemoryMode()
-                                    }
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                        }
-                    }
-                    .background(Color.primary.opacity(0.02))
-                    .cornerRadius(10)
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.06), lineWidth: 1))
-                    .padding(.top, 8)
-                    .padding(.bottom, 24)
-                    } // end chooseModelsExpanded
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 8)
-            }
-            .onChange(of: scrollToLocalText) { _, shouldScroll in
-                if shouldScroll {
-                    chooseModelsExpanded = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        withAnimation {
-                            proxy.scrollTo("local_text_models_section", anchor: .top)
+                .onChange(of: scrollToLocalText) { _, shouldScroll in
+                    if shouldScroll {
+                        chooseModelsExpanded = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            withAnimation {
+                                proxy.scrollTo("local_text_models_section", anchor: .top)
+                            }
                         }
                     }
                 }
-            }
-            .onAppear {
-                if scrollToLocalText {
-                    chooseModelsExpanded = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        withAnimation {
-                            proxy.scrollTo("local_text_models_section", anchor: .top)
+                .onAppear {
+                    if scrollToLocalText {
+                        chooseModelsExpanded = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            withAnimation {
+                                proxy.scrollTo("local_text_models_section", anchor: .top)
+                            }
                         }
                     }
                 }
-            }
             }
         }
         .searchable(text: $searchText, prompt: "Search models...")

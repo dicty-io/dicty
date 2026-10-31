@@ -149,8 +149,7 @@ jobs:
     needs: release
     runs-on: macos-15
     env:
-      DEVELOPER_ID_CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
-      DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+      DEVELOPER_ID_CERTIFICATE_CONFIGURED: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -158,8 +157,10 @@ jobs:
           fetch-depth: 0
 
       - name: Import Apple Developer ID Certificate (if configured)
-        if: env.DEVELOPER_ID_CERTIFICATE_BASE64 != ''
+        if: env.DEVELOPER_ID_CERTIFICATE_CONFIGURED == 'true'
         env:
+          DEVELOPER_ID_CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
+          DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD || 'dicty-build-temp' }}
         run: |
           KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
