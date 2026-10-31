@@ -3,22 +3,11 @@ name: Automated Tests & Build Verification
 on:
   push:
     branches: [ main ]
-    paths-ignore:
-      - 'DictyClientTauri/**'
-      - 'scripts/windows/**'
-      - 'requirements-windows.txt'
-      - '*.bat'
-      - '*.ps1'
-      - '**.md'
   pull_request:
     branches: [ main ]
-    paths-ignore:
-      - 'DictyClientTauri/**'
-      - 'scripts/windows/**'
-      - 'requirements-windows.txt'
-      - '*.bat'
-      - '*.ps1'
-      - '**.md'
+  schedule:
+    # Nightly full sweep: catches toolchain drift and flaky Swift tests without blocking PRs.
+    - cron: '0 6 * * *'
   workflow_dispatch:
 
 permissions:
@@ -30,31 +19,28 @@ concurrency:
 
 jobs:
   # =========================================================================
-  # 1. GITHUB-HOSTED PYTHON BACKEND TEST SUITE (Safe for outside forks)
+  # 1. BACKEND TEST SUITE
+  # Runs on every PR and push. macOS-only: the engine is macOS/Windows only,
+  # and the suite imports audio/TTS services that need the macOS toolchain.
   # =========================================================================
   python-tests:
-    name: Python Backend Tests (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-15]
-        python-version: ['3.12']
+    name: Backend Tests
+    runs-on: macos-15
+    timeout-minutes: 30
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v7
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python 3.12
         uses: actions/setup-python@v7
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.12'
           cache: 'pip'
 
       - name: Install Dependencies
         run: |
           python3 -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install coverage
+          pip install -r requirements.txt coverage
 
       - name: Run Backend Unit Tests with Coverage
         run: |
@@ -72,107 +58,40 @@ jobs:
           fail_ci_if_error: false
 
   # =========================================================================
-  # 2. SELF-HOSTED MAC RUNNER TEST SUITE (Apple Silicon Metal & Swift Build)
+  # 2. SWIFT CLIENT RELEASE BUILD
+  # Compile gate for the macOS client. Runs on PRs so that Swift compile
+  # errors fail before merge instead of turning main red after merge.
   # =========================================================================
-  test-and-verify:
-    name: Backend & Swift Client Test Suite (macOS Apple Silicon)
-    # Runs only on pushes to main or manual workflow dispatch (skips on PRs for fast feedback)
-    if: github.repository == 'dicty-io/dicty' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+  swift-build:
+    name: Swift Client Release Build
     runs-on: macos-15
+    timeout-minutes: 45
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v7
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v7
+      - name: Cache Swift Package Build
+        uses: actions/cache@v4
         with:
-          python-version: '3.12'
-          cache: 'pip'
+          path: DictyClient/.build
+          key: swift-build-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            swift-build-${{ runner.os }}-
 
-      - name: Set up Persistent Python Environment & Dependencies
+      - name: Show Active Toolchain
         run: |
-          chmod +x scripts/setup_runner_env.sh
-          ./scripts/setup_runner_env.sh
+          xcode-select -p
+          xcodebuild -version
+          swift --version
 
-      - name: Select Xcode Toolchain
+      - name: Build Client (release)
+        working-directory: DictyClient
         run: |
-          CURRENT_XCODE="$(xcode-select -p 2>/dev/null || true)"
-          if [ -z "$CURRENT_XCODE" ] || [ "$CURRENT_XCODE" = "/Library/Developer/CommandLineTools" ] || [ ! -d "$CURRENT_XCODE" ]; then
-            for xcode_path in \
-                "/Applications/Xcode.app/Contents/Developer" \
-                $(ls -d /Applications/Xcode*.app/Contents/Developer 2>/dev/null | sort -V -r); do
-                if [ -d "$xcode_path" ]; then
-                    echo "[*] Selecting Xcode: $xcode_path"
-                    sudo xcode-select -s "$xcode_path" 2>/dev/null || true
-                    break
-                fi
-            done
-          fi
-          sudo -n xcodebuild -license accept 2>/dev/null || true
-          echo "[*] Active Xcode: $(xcode-select -p 2>/dev/null || echo 'none')"
-          xcodebuild -version 2>/dev/null || true
-          swift --version 2>&1 | head -n 1
-
-      - name: Run Backend Automated Test Suite
-        run: |
-          chmod +x scripts/run_tests.sh
-          ./scripts/run_tests.sh --backend-only
-
-      - name: Upload Coverage Reports to Codecov
-        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
-        continue-on-error: true
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage.xml
-          fail_ci_if_error: false
-
-      - name: Verify Swift Release Build
-        run: |
-          sudo -n xcodebuild -license accept 2>/dev/null || true
-          if [ -z "$DEVELOPER_DIR" ] || [ "$DEVELOPER_DIR" = "/Library/Developer/CommandLineTools" ]; then
-            CURRENT_XCODE="$(xcode-select -p 2>/dev/null || true)"
-            if [ -n "$CURRENT_XCODE" ] && [ "$CURRENT_XCODE" != "/Library/Developer/CommandLineTools" ] && [ -d "$CURRENT_XCODE" ]; then
-              export DEVELOPER_DIR="$CURRENT_XCODE"
-            else
-              for xcode_path in \
-                  "/Applications/Xcode.app/Contents/Developer" \
-                  $(ls -d /Applications/Xcode*.app/Contents/Developer 2>/dev/null | sort -V -r); do
-                  if [ -d "$xcode_path" ]; then
-                      export DEVELOPER_DIR="$xcode_path"
-                      break
-                  fi
-              done
-            fi
-            if [ -z "$DEVELOPER_DIR" ] || [ "$DEVELOPER_DIR" = "/Library/Developer/CommandLineTools" ]; then
-              if [ -z "$SDKROOT" ]; then
-                for sdk_path in \
-                    "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk" \
-                    "/Library/Developer/CommandLineTools/SDKs/MacOSX15.sdk" \
-                    "/Library/Developer/CommandLineTools/SDKs/MacOSX14.sdk" \
-                    "/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk" \
-                    "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk"; do
-                    if [ -d "$sdk_path" ]; then
-                        export SDKROOT="$sdk_path"
-                        echo "[*] Configured SDKROOT=$SDKROOT (CommandLineTools SDK fallback)"
-                        break
-                    fi
-                done
-              fi
-            fi
-          fi
-          cd DictyClient
-          SWIFT_CMD="swift"
-          if [ "$(sysctl -in hw.optional.arm64 2>/dev/null)" = "1" ]; then
-              SWIFT_CMD="arch -arm64 swift"
-          fi
-          BUILD_STATUS=0
-          $SWIFT_CMD build -c release || BUILD_STATUS=$?
-          if [ $BUILD_STATUS -eq 69 ]; then
-            echo "[!] NOTICE: Xcode license not accepted on runner (exit code 69). Skipping Swift release build verification."
-          elif [ $BUILD_STATUS -ne 0 ]; then
-            echo "[!] Swift release build failed with cached build graph. Cleaning .build and retrying..."
+          if ! swift build -c release; then
+            echo "[!] Release build failed with the restored build cache."
+            echo "[!] Clearing .build and retrying from scratch..."
             rm -rf .build
-            $SWIFT_CMD build -c release
+            swift build -c release
           fi
 
       - name: Validate App Bundle Packaging & Codesign Sealing
@@ -181,24 +100,85 @@ jobs:
           ./scripts/validate_app_bundle.sh
 
   # =========================================================================
-  # 3. TEST STATUS GATE
+  # 3. SWIFT TEST SUITE (nightly / manual only)
+  # Kept off the PR path: the suite has a history of runner flakiness, and a
+  # flaky check would block contributors. A nightly run still surfaces real
+  # regressions and gives us evidence before it becomes a PR problem.
+  # =========================================================================
+  swift-tests:
+    name: Swift Test Suite (nightly)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+
+      - name: Cache Swift Package Build
+        uses: actions/cache@v4
+        with:
+          path: DictyClient/.build
+          key: swift-test-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            swift-test-${{ runner.os }}-
+
+      - name: Show Active Toolchain
+        run: |
+          xcode-select -p
+          xcodebuild -version
+          swift --version
+
+      - name: Run Swift Test Suite
+        run: |
+          make test-swift
+
+  # =========================================================================
+  # 4. TEST STATUS GATE
+  # Always runs so the required check always reports a result, including when
+  # optional jobs are skipped (nightly-only suites, fork PRs).
   # =========================================================================
   tests-quality-gate:
     name: Tests Quality Gate
     if: always()
-    needs: [python-tests, test-and-verify]
+    needs: [python-tests, swift-build, swift-tests]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Verify All Test Checks Passed
+        env:
+          PYTHON_TESTS: ${{ needs.python-tests.result }}
+          SWIFT_BUILD: ${{ needs.swift-build.result }}
+          SWIFT_TESTS: ${{ needs.swift-tests.result }}
         run: |
-          if [ "${{ needs.python-tests.result }}" != "success" ]; then
-            echo "[-] python-tests failed!"
+          echo "Backend Tests:              $PYTHON_TESTS"
+          echo "Swift Client Release Build: $SWIFT_BUILD"
+          echo "Swift Test Suite (nightly): $SWIFT_TESTS"
+          echo ""
+
+          FAILED=0
+          if [ "$PYTHON_TESTS" != "success" ]; then
+            echo "[-] Backend tests did not pass."
+            FAILED=1
+          fi
+          if [ "$SWIFT_BUILD" != "success" ]; then
+            echo "[-] Swift client release build did not pass."
+            FAILED=1
+          fi
+          case "$SWIFT_TESTS" in
+            success|skipped) ;;
+            *)
+              echo "[-] Nightly Swift test suite did not pass."
+              FAILED=1
+              ;;
+          esac
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo "=================================================================="
+            echo " ❌ REQUIRED CHECKS FAILED"
+            echo "=================================================================="
             exit 1
           fi
-          if [ "${{ needs.test-and-verify.result }}" != "success" ] && [ "${{ needs.test-and-verify.result }}" != "skipped" ]; then
-            echo "[-] test-and-verify failed!"
-            exit 1
-          fi
+
           echo "=================================================================="
           echo " ✅ ALL AUTOMATED TESTS & BUILDS PASSED!"
           echo "=================================================================="

@@ -41,6 +41,7 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       next_tag: ${{ steps.compute.outputs.next_tag }}
       build_windows: ${{ steps.compute.outputs.build_windows }}
@@ -148,6 +149,7 @@ jobs:
   build_mac:
     needs: release
     runs-on: macos-15
+    timeout-minutes: 120
     env:
       DEVELOPER_ID_CERTIFICATE_CONFIGURED: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 != '' }}
     steps:
@@ -185,24 +187,12 @@ jobs:
           chmod +x scripts/setup_runner_env.sh
           ./scripts/setup_runner_env.sh
 
-      - name: Select Xcode Toolchain
+      - name: Show Active Toolchain
         run: |
-          CURRENT_XCODE="$(xcode-select -p 2>/dev/null || true)"
-          if [ -z "$CURRENT_XCODE" ] || [ "$CURRENT_XCODE" = "/Library/Developer/CommandLineTools" ] || [ ! -d "$CURRENT_XCODE" ]; then
-            for xcode_path in \
-                "/Applications/Xcode.app/Contents/Developer" \
-                $(ls -d /Applications/Xcode*.app/Contents/Developer 2>/dev/null | sort -V -r); do
-                if [ -d "$xcode_path" ]; then
-                    echo "[*] Selecting Xcode: $xcode_path"
-                    sudo xcode-select -s "$xcode_path" 2>/dev/null || true
-                    break
-                fi
-            done
-          fi
-          sudo -n xcodebuild -license accept 2>/dev/null || true
-          echo "[*] Active Xcode: $(xcode-select -p 2>/dev/null || echo 'none')"
-          xcodebuild -version 2>/dev/null || true
-          swift --version 2>&1 | head -n 1
+          # GitHub-hosted macOS images ship with DEVELOPER_DIR already selected.
+          xcode-select -p
+          xcodebuild -version
+          swift --version
 
       - name: Build DMG
         env:
