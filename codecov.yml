@@ -1,0 +1,23 @@
+# Codecov configuration
+# https://docs.codecov.com/docs/codecov-yaml
+coverage:
+  status:
+    project:
+      default:
+        target: 50%         # matches the --fail-under=50 floor in tests-and-build.yml
+        threshold: 0.5%     # allow small drops without failing PRs
+    patch:
+      default:
+        target: auto        # patch coverage must be within 1% of the project coverage
+        threshold: 1%
+
+comment:
+  layout: "reach,diff,flags,files"
+  behavior: default
+  require_changes: false
+  require_base: false
+  require_head: true
+
+ignore:
+  - "tests/**"
+  - "scripts/**"
