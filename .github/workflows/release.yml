@@ -23,16 +23,28 @@ on:
         required: false
         type: string
         default: ''
+      build_mac:
+        description: 'macOS DMG: auto = build only when macOS or shared files changed'
+        required: true
+        type: choice
+        options:
+          - auto
+          - always
+          - never
+        default: auto
       build_windows:
-        description: 'Build Windows app installer'
-        required: false
-        type: boolean
-        default: false
+        description: 'Windows installer: auto = build only when Windows or shared files changed'
+        required: true
+        type: choice
+        options:
+          - auto
+          - always
+          - never
+        default: auto
 
 permissions:
   contents: write         # create releases/tags
   pull-requests: read     # read commit & PR metadata
-  actions: write          # runner caching
 
 concurrency:
   group: release-${{ github.ref }}
@@ -44,7 +56,8 @@ jobs:
     timeout-minutes: 15
     outputs:
       next_tag: ${{ steps.compute.outputs.next_tag }}
-      build_windows: ${{ steps.compute.outputs.build_windows }}
+      build_mac: ${{ steps.changes.outputs.build_mac }}
+      build_windows: ${{ steps.changes.outputs.build_windows }}
 
     steps:
       - name: Checkout
@@ -60,9 +73,82 @@ jobs:
         run: |
           python3 .github/scripts/generate_release_notes.py
 
-      - name: Compute next version & create release
+      - name: Detect changed platforms
+        id: changes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MAC_MODE: ${{ inputs.build_mac }}
+          WINDOWS_MODE: ${{ inputs.build_windows }}
+        run: |
+          set -euo pipefail
+
+          # Compare against the last *published* release, so re-running this
+          # workflow reuses the same diff instead of comparing a tag to itself.
+          PREV_TAG="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name 2>/dev/null || true)"
+          if [ -z "$PREV_TAG" ]; then
+            PREV_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          fi
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "[!] No previous release tag found; treating every platform as changed."
+            CHANGED=""
+          else
+            echo "[*] Files changed since ${PREV_TAG}:"
+            CHANGED="$(git diff --name-only "${PREV_TAG}..HEAD")"
+            echo "$CHANGED" | sed 's/^/    /'
+          fi
+
+          # Paths that ship in both the macOS and the Windows build.
+          SHARED='^(main\.py|dicty_engine\.py|dicty_engine\.spec|services/|routers/|integrations/|compat_libs/|assets/|requirements\.txt|requirements-desktop\.txt|models_config\.json|custom_prompts\.json|vocabulary\.json)'
+          MAC_ONLY='^(DictyClient/|make_dmg\.sh|build_mac\.sh|Casks/|scripts/compile_whisper\.sh|scripts/validate_app_bundle\.sh)'
+          WIN_ONLY='^(DictyClientTauri/|scripts/windows/|requirements-windows\.txt)'
+
+          mac_changed=true
+          windows_changed=true
+          if [ -n "$CHANGED" ]; then
+            mac_changed=false
+            windows_changed=false
+            if echo "$CHANGED" | grep -qE "$SHARED"; then
+              mac_changed=true
+              windows_changed=true
+            fi
+            if echo "$CHANGED" | grep -qE "$MAC_ONLY"; then
+              mac_changed=true
+            fi
+            if echo "$CHANGED" | grep -qE "$WIN_ONLY"; then
+              windows_changed=true
+            fi
+          fi
+
+          resolve() {
+            case "$1" in
+              always) echo true ;;
+              never)  echo false ;;
+              *)      echo "$2" ;;
+            esac
+          }
+
+          BUILD_MAC="$(resolve "${MAC_MODE:-auto}" "$mac_changed")"
+          BUILD_WINDOWS="$(resolve "${WINDOWS_MODE:-auto}" "$windows_changed")"
+
+          echo "[*] macOS:   changed=${mac_changed} mode=${MAC_MODE:-auto} -> build=${BUILD_MAC}"
+          echo "[*] Windows: changed=${windows_changed} mode=${WINDOWS_MODE:-auto} -> build=${BUILD_WINDOWS}"
+
+          if [ "$BUILD_MAC" != "true" ] && [ "$BUILD_WINDOWS" != "true" ]; then
+            echo "[-] No platform has relevant changes since ${PREV_TAG:-the beginning of history}."
+            echo "[-] Nothing to release. Set build_mac/build_windows to 'always' to override."
+            exit 1
+          fi
+
+          echo "build_mac=${BUILD_MAC}" >> "$GITHUB_OUTPUT"
+          echo "build_windows=${BUILD_WINDOWS}" >> "$GITHUB_OUTPUT"
+
+      - name: Compute next version & create draft release
         id: compute
         uses: actions/github-script@v9
+        env:
+          BUILD_MAC: ${{ steps.changes.outputs.build_mac }}
+          BUILD_WINDOWS: ${{ steps.changes.outputs.build_windows }}
         with:
           script: |
             const owner = context.repo.owner;
@@ -70,10 +156,9 @@ jobs:
 
             const bumpType = (context.payload.inputs?.bump_type || 'patch').trim().toLowerCase();
             const customVersionInput = (context.payload.inputs?.custom_version || '').trim();
-            const buildWindows = context.payload.inputs?.build_windows === true || context.payload.inputs?.build_windows === 'true';
 
-            core.info(`Manual release triggered by @${context.actor}: bump_type=${bumpType}, custom_version=${customVersionInput}, build_windows=${buildWindows}`);
-            core.setOutput('build_windows', buildWindows ? 'true' : 'false');
+            core.info(`Manual release triggered by @${context.actor}: bump_type=${bumpType}, custom_version=${customVersionInput}`);
+            core.info(`Platforms to build: macOS=${process.env.BUILD_MAC} windows=${process.env.BUILD_WINDOWS}`);
 
             // Get latest release tag
             let latestTag;
@@ -130,26 +215,53 @@ jobs:
             const tagName = `v${nextTag}`;
             core.info(`Calculated release version: ${latestTag} -> ${nextTag}`);
 
-            // Create the release at current commit SHA
-            await github.rest.repos.createRelease({
-              owner, repo,
-              tag_name: tagName,
-              name: tagName,
-              body: notes,
-              draft: false,
-              prerelease: false,
-              target_commitish: context.sha
-            });
+            // The release is created as a DRAFT. It is only published by the
+            // `publish` job once every requested installer has been uploaded,
+            // so a failed build never leaves a public release without assets.
+            try {
+              const created = await github.rest.repos.createRelease({
+                owner, repo,
+                tag_name: tagName,
+                name: tagName,
+                body: notes,
+                draft: true,
+                prerelease: false,
+                target_commitish: context.sha
+              });
+              core.info(`Created draft release ${tagName} (id ${created.data.id}).`);
+            } catch (err) {
+              if (err.status !== 422) throw err;
+
+              // Re-run on the same version: reuse the existing draft.
+              const existing = await github.rest.repos.getReleaseByTag({ owner, repo, tag: tagName });
+              if (!existing.data.draft) {
+                core.setFailed(`Release ${tagName} is already published. Use a new version instead of re-running this one.`);
+                return;
+              }
+              core.warning(`Draft ${tagName} already exists; updating its notes.`);
+              await github.rest.repos.updateRelease({
+                owner, repo,
+                release_id: existing.data.id,
+                name: tagName,
+                body: notes
+              });
+            }
 
             core.setOutput('next_tag', nextTag);
 
       - name: Summary
-        run: echo "Successfully created release v${{ steps.compute.outputs.next_tag }}!"
+        run: |
+          echo "Draft release v${{ steps.compute.outputs.next_tag }} created."
+          echo "macOS build:   ${{ steps.changes.outputs.build_mac }}"
+          echo "Windows build: ${{ steps.changes.outputs.build_windows }}"
+          echo "The release is published automatically once the requested installers are uploaded."
 
   build_mac:
     needs: release
+    if: needs.release.outputs.build_mac == 'true'
     runs-on: macos-15
     timeout-minutes: 120
+    environment: release
     env:
       DEVELOPER_ID_CERTIFICATE_CONFIGURED: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 != '' }}
     steps:
@@ -194,6 +306,23 @@ jobs:
           xcodebuild -version
           swift --version
 
+      - name: Verify Signing Configuration
+        run: |
+          echo "[*] Certificate imported: ${DEVELOPER_ID_CERTIFICATE_CONFIGURED}"
+          if [ "${DEVELOPER_ID_CERTIFICATE_CONFIGURED}" = "true" ] && [ -z "${DEVELOPER_ID_APPLICATION:-}" ]; then
+            echo "[-] A Developer ID certificate is configured, but DEVELOPER_ID_APPLICATION is empty."
+            echo "[-] Refusing to publish an ad-hoc signed build. Set DEVELOPER_ID_APPLICATION or remove the certificate secret."
+            exit 1
+          fi
+          if [ "${DEVELOPER_ID_CERTIFICATE_CONFIGURED}" = "true" ]; then
+            echo "[*] Identities available for code signing:"
+            security find-identity -v -p codesigning "${KEYCHAIN_PATH:-}" | sed 's/^/    /'
+            if ! security find-identity -v -p codesigning "${KEYCHAIN_PATH:-}" | grep -q "${DEVELOPER_ID_APPLICATION}"; then
+              echo "[-] '${DEVELOPER_ID_APPLICATION}' is not present in the build keychain."
+              exit 1
+            fi
+          fi
+
       - name: Build DMG
         env:
           MACOSX_DEPLOYMENT_TARGET: "14.0"
@@ -207,6 +336,44 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           ./make_dmg.sh
+
+      - name: Verify Signing & Notarization
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+        run: |
+          if [ ! -f dist/Dicty.dmg ]; then
+            echo "[-] make_dmg.sh completed but dist/Dicty.dmg does not exist."
+            exit 1
+          fi
+          echo "[*] DMG size: $(du -h dist/Dicty.dmg | cut -f1)"
+
+          if [ -z "${DEVELOPER_ID_APPLICATION:-}" ]; then
+            echo "[!] No Developer ID configured: DMG is ad-hoc signed and will not pass Gatekeeper on other machines."
+            exit 0
+          fi
+
+          echo "[*] Verifying DMG signature..."
+          codesign --verify --verbose=2 dist/Dicty.dmg
+
+          if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ] && [ -n "${APPLE_APP_PASSWORD:-}" ]; then
+            echo "[*] Verifying notarization ticket is stapled to the DMG..."
+            xcrun stapler validate dist/Dicty.dmg
+            echo "[*] Assessing Gatekeeper acceptance..."
+            spctl --assess --type open --context context:primary-signature -v dist/Dicty.dmg
+          else
+            echo "[!] Notarization credentials are not configured: the DMG is signed but not notarized."
+          fi
+
+      - name: Remove Build Keychain
+        if: always()
+        run: |
+          if [ -n "${KEYCHAIN_PATH:-}" ]; then
+            security delete-keychain "$KEYCHAIN_PATH" || true
+            echo "[*] Removed build keychain."
+          fi
 
       - name: Compute Checksum and Upload DMG Release Assets
         env:
@@ -319,23 +486,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Local Runner Cache Environment
-        shell: powershell
-        run: |
-          if ($env:RUNNER_WORKSPACE) {
-            $runnerRoot = (Get-Item $env:RUNNER_WORKSPACE).Parent.Parent.FullName
-            $cacheDir = Join-Path $runnerRoot "_cache"
-          } elseif (Test-Path "$env:USERPROFILE\actions-runner") {
-            $cacheDir = "$env:USERPROFILE\actions-runner\_cache"
-          } else {
-            $cacheDir = "$env:USERPROFILE\.dicty_cache"
-          }
-          New-Item -ItemType Directory -Path "$cacheDir\pip", "$cacheDir\cargo_target", "$cacheDir\whisper" -Force | Out-Null
-          Write-Host "Configured Runner Cache Directory: $cacheDir"
-          "RUNNER_CACHE_DIR=$cacheDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "PIP_CACHE_DIR=$cacheDir\pip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "CARGO_TARGET_DIR=$cacheDir\cargo_target" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
@@ -396,6 +546,10 @@ jobs:
           if (-not $files) {
             $files = Get-ChildItem -Path "$targetDir\release\bundle\nsis\*.exe", "DictyClientTauri\src-tauri\target\release\bundle\nsis\*.exe" -ErrorAction SilentlyContinue
           }
+          if (-not $files) {
+            Write-Host "[-] No NSIS installer was produced; the release will stay unpublished."
+            exit 1
+          }
           foreach ($f in $files) {
             $sha256 = (Get-FileHash -Path $f.FullName -Algorithm SHA256).Hash.ToLower()
             $shaFile = "$($f.FullName).sha256"
@@ -404,4 +558,83 @@ jobs:
             Write-Host "Uploading $($f.Name) and $($f.Name).sha256 to $tag on GitHub Release..."
             gh release upload $tag $f.FullName $shaFile --clobber
           }
+
+  # =========================================================================
+  # 5. PUBLISH
+  # Runs after every requested installer has been built and uploaded. The
+  # release stays an invisible draft when anything fails, so a partial run
+  # never becomes a public release with missing assets.
+  # =========================================================================
+  publish:
+    name: Publish Release
+    needs: [release, build_mac, build_windows]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    steps:
+      - name: Verify Requested Builds Succeeded
+        env:
+          TAG: v${{ needs.release.outputs.next_tag }}
+          BUILD_MAC: ${{ needs.release.outputs.build_mac }}
+          BUILD_WINDOWS: ${{ needs.release.outputs.build_windows }}
+          MAC_RESULT: ${{ needs.build_mac.result }}
+          WINDOWS_RESULT: ${{ needs.build_windows.result }}
+        run: |
+          if [ -z "$TAG" ] || [ "$TAG" = "v" ]; then
+            echo "[-] The release job did not produce a version tag. Leaving nothing published."
+            exit 1
+          fi
+
+          echo "macOS:   requested=${BUILD_MAC} result=${MAC_RESULT}"
+          echo "Windows: requested=${BUILD_WINDOWS} result=${WINDOWS_RESULT}"
+
+          FAILED=0
+          if [ "$BUILD_MAC" = "true" ] && [ "$MAC_RESULT" != "success" ]; then
+            echo "[-] macOS build did not succeed. The release stays a draft."
+            FAILED=1
+          fi
+          if [ "$BUILD_WINDOWS" = "true" ] && [ "$WINDOWS_RESULT" != "success" ]; then
+            echo "[-] Windows build did not succeed. The release stays a draft."
+            FAILED=1
+          fi
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo "[-] Fix the build failure and re-run the workflow; the draft is reused."
+            exit 1
+          fi
+
+      - name: Verify Expected Assets Were Uploaded
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ needs.release.outputs.next_tag }}
+          BUILD_MAC: ${{ needs.release.outputs.build_mac }}
+          BUILD_WINDOWS: ${{ needs.release.outputs.build_windows }}
+        run: |
+          ASSETS="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+          echo "Assets uploaded to ${TAG}:"
+          echo "$ASSETS" | sed 's/^/    /'
+
+          FAILED=0
+          if [ "$BUILD_MAC" = "true" ] && ! echo "$ASSETS" | grep -qx "Dicty.dmg"; then
+            echo "[-] Dicty.dmg is missing from ${TAG}."
+            FAILED=1
+          fi
+          if [ "$BUILD_WINDOWS" = "true" ] && ! echo "$ASSETS" | grep -qE "\.exe$"; then
+            echo "[-] No Windows .exe installer is attached to ${TAG}."
+            FAILED=1
+          fi
+
+          if [ "$FAILED" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Publish Draft Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ needs.release.outputs.next_tag }}
+        run: |
+          gh release edit "$TAG" --draft=false --latest
+          echo "[+] Published ${TAG}."
+          gh release view "$TAG" --json url --jq .url
 
