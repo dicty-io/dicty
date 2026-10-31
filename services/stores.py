@@ -138,7 +138,7 @@ class HistoryManager:
                 return [dict(x) for x in self._cached_data]
         except Exception as e:
             print(f"[!] Warning reading history.json: {e}")
-            return []
+            raise
 
     def _write_data(self, data):
         temp_file = f"{paths.HISTORY_FILE}.tmp.{os.getpid()}"
@@ -160,17 +160,28 @@ class HistoryManager:
 
     def get_all(self):
         with self.lock:
-            return self._read_data()
+            try:
+                return self._read_data()
+            except Exception:
+                return []
             
     def add_record(self, record):
         with self.lock:
-            data = self._read_data()
+            try:
+                data = self._read_data()
+            except Exception as e:
+                print(f"[!] Aborting add_record because history read failed: {e}")
+                return
             data.insert(0, record)
             self._write_data(data)
                 
     def update_record(self, record_id, updates):
         with self.lock:
-            data = self._read_data()
+            try:
+                data = self._read_data()
+            except Exception as e:
+                print(f"[!] Aborting update_record because history read failed: {e}")
+                return None
             record = next((r for r in data if r.get("id") == record_id), None)
             if record:
                 record.update(updates)
@@ -179,7 +190,11 @@ class HistoryManager:
             
     def delete_record(self, record_id):
         with self.lock:
-            data = self._read_data()
+            try:
+                data = self._read_data()
+            except Exception as e:
+                print(f"[!] Aborting delete_record because history read failed: {e}")
+                return None
             record = next((r for r in data if r.get("id") == record_id), None)
             if record:
                 data = [r for r in data if r.get("id") != record_id]

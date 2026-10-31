@@ -405,7 +405,7 @@ class ModelManager:
     # ggml ftype -> quality label (whisper.cpp ggml_ftype, modulo GGML_QNT_VERSION_FACTOR=1000)
     _GGML_FTYPES = {0: "f32", 1: "f16", 2: "q4_0", 3: "q4_1", 7: "q8_0", 8: "q5_0", 9: "q5_1"}
     _RECOGNIZED_QUALITY_VARIANTS = {
-        "q4_0", "q4_1", "q5_0", "q5_1", "q8_0", "f16", "f32",
+        "q4_0", "q4_1", "q5_0", "q5_1", "q8_0", "f16", "f32", "fp16", "fp32",
         "q2_k", "q3_k_s", "q3_k_m", "q3_k_l", "q4_k_s", "q4_k_m", "q5_k_s", "q5_k_m", "q6_k", "q8_k"
     }
 

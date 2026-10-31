@@ -3696,15 +3696,12 @@ class EngineClient: ObservableObject {
                 try? process.run()
                 DispatchQueue.global(qos: .utility).async {
                     process.waitUntilExit()
+                    DispatchQueue.main.async {
+                        Self.promptAccessibilityPermissionAndOpenSettings()
+                    }
                 }
-            }
-            
-            if response != .alertThirdButtonReturn {
-                let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-                _ = AXIsProcessTrustedWithOptions(options)
-                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                    NSWorkspace.shared.open(url)
-                }
+            } else if response == .alertFirstButtonReturn {
+                Self.promptAccessibilityPermissionAndOpenSettings()
             }
             onPasted?(false)
             return
@@ -3753,6 +3750,14 @@ class EngineClient: ObservableObject {
                 backup.restore()
                 print("[*] Restored previous clipboard content after auto-paste.")
             }
+        }
+    }
+    
+    private static func promptAccessibilityPermissionAndOpenSettings() {
+        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
         }
     }
     
