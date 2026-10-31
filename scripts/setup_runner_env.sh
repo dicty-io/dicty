@@ -35,12 +35,20 @@ elif command -v md5sum &>/dev/null; then
 fi
 
 HASH_FILE="$PERSISTENT_VENV/.dicty_req_hash"
-NEEDS_INSTALL=0
+PYTHON_BIN="python3"
+if command -v python3.12 &>/dev/null; then
+    PYTHON_BIN="python3.12"
+fi
 
 if [ ! -d "$PERSISTENT_VENV" ] || [ ! -f "$PERSISTENT_VENV/bin/python3" ]; then
-    echo "[*] Creating persistent virtual environment in $PERSISTENT_VENV..."
+    echo "[*] Creating persistent virtual environment in $PERSISTENT_VENV using $($PYTHON_BIN --version)..."
     rm -rf "$PERSISTENT_VENV"
-    python3 -m venv "$PERSISTENT_VENV"
+    "$PYTHON_BIN" -m venv "$PERSISTENT_VENV"
+    NEEDS_INSTALL=1
+elif ! "$PERSISTENT_VENV/bin/python3" -c "import sys; sys.exit(0 if (3, 10) <= sys.version_info < (3, 14) else 1)" 2>/dev/null; then
+    echo "[!] Python version in $PERSISTENT_VENV incompatible (<3.10 or >=3.14). Recreating with $PYTHON_BIN..."
+    rm -rf "$PERSISTENT_VENV"
+    "$PYTHON_BIN" -m venv "$PERSISTENT_VENV"
     NEEDS_INSTALL=1
 elif ! "$PERSISTENT_VENV/bin/python3" -c "import fastapi, httpx, passlib, jose, multipart, email_validator, PyInstaller, cmake, PIL" 2>/dev/null; then
     echo "[!] Core packages missing from $PERSISTENT_VENV. Reinstalling..."

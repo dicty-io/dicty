@@ -171,6 +171,12 @@ jobs:
           security list-keychains -d user -s $KEYCHAIN_PATH $(security list-keychains -d user | sed -e 's/"//g')
           rm -f $RUNNER_TEMP/certificate.p12
 
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
       - name: Set up Persistent Python Environment & Dependencies
         run: |
           chmod +x scripts/setup_runner_env.sh
