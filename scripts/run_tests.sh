@@ -97,15 +97,11 @@ if command -v swift &> /dev/null; then
     echo "[*] Active Xcode DEVELOPER_DIR: ${DEVELOPER_DIR:-$(xcode-select -p 2>/dev/null || echo 'default')}"
     echo "[*] Swift compiler: $($SWIFT_CMD --version 2>&1 | head -n 1)"
 
-    SWIFT_STATUS=0
-    if [ "$RUN_SWIFT_TESTS" = "1" ]; then
-        echo "[*] Executing Swift test suite (RUN_SWIFT_TESTS=1)..."
-        $SWIFT_CMD test || SWIFT_STATUS=$?
-        if [ $SWIFT_STATUS -ne 0 ]; then
-            echo "[!] Swift test runner failed ($SWIFT_STATUS). Cleaning .build and retrying..."
-            rm -rf .build
-            $SWIFT_CMD test -v || true
-        fi
+    echo "[*] Executing Swift test suite..."
+    if ! $SWIFT_CMD test; then
+        echo "[!] Swift tests failed. Cleaning .build and retrying once from scratch..."
+        rm -rf .build
+        $SWIFT_CMD test
     fi
 
     echo "[*] Validating Swift UI client compilation (Release mode)..."
