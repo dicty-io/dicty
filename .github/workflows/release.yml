@@ -248,12 +248,21 @@ jobs:
                 core.setFailed(`Release ${tagName} is already published. Use a new version instead of re-running this one.`);
                 return;
               }
+              // The create call pinned the draft to context.sha. A draft found
+              // here was created by an earlier run; if its target differs, the
+              // installers about to be uploaded would belong to a different
+              // commit than the tag. Refuse instead of silently retargeting.
+              if (existing.target_commitish && existing.target_commitish !== context.sha) {
+                core.setFailed(`Draft ${tagName} targets ${existing.target_commitish}, but this run is on ${context.sha}. Delete the draft or re-run on the original commit.`);
+                return;
+              }
               core.warning(`Draft ${tagName} already exists; updating its notes.`);
               await github.rest.repos.updateRelease({
                 owner, repo,
                 release_id: existing.id,
                 name: tagName,
-                body: notes
+                body: notes,
+                target_commitish: context.sha
               });
             }
 

@@ -69,6 +69,14 @@ jobs never leaves a PR stuck on a pending check.
    assets are attached, flips the draft to a published release, and only then bumps the
    Homebrew cask (so the tap never points at a draft DMG).
 
+Signing and notarization are **conditional**: if `DEVELOPER_ID_CERTIFICATE_BASE64` is
+unset, the DMG is ad-hoc signed and the signature/notarization/Gatekeeper checks are
+skipped; if notarization credentials (`APPLE_ID`, `APPLE_TEAM_ID`,
+`APPLE_APP_PASSWORD`) are unset, the DMG is signed but not notarized. Release
+operators should not assume these checks ran unless the corresponding secrets are
+configured. `DEVELOPER_ID_APPLICATION` is mandatory whenever the certificate secret
+is present.
+
 Because the release stays a draft until the end, a failed build never produces a public
 release with missing assets. Re-running the workflow reuses the same draft.
 
