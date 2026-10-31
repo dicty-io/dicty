@@ -219,27 +219,31 @@ done
 
 # --- Release path: Apple Developer ID (required for Gatekeeper-friendly public releases) ---
 # Set DEVELOPER_ID_APPLICATION="Developer ID Application: Your Name (TEAMID)"
-HAS_DEVELOPER_ID=0
 if [ -n "${DEVELOPER_ID_APPLICATION}" ]; then
-    if security find-identity -v -p codesigning 2>/dev/null | grep -q "${DEVELOPER_ID_APPLICATION}"; then
-        HAS_DEVELOPER_ID=1
-    else
-        echo "[!] Warning: DEVELOPER_ID_APPLICATION is set ('${DEVELOPER_ID_APPLICATION}'), but matching certificate is not present in the keychain."
-        echo "[!] Falling back to ad-hoc signing so build succeeds."
+    echo "[*] Checking Developer ID identity in keychain: ${DEVELOPER_ID_APPLICATION}"
+    FIND_ARGS=("-v" "-p" "codesigning")
+    if [ -n "${KEYCHAIN_PATH}" ] && [ -f "${KEYCHAIN_PATH}" ]; then
+        FIND_ARGS+=("${KEYCHAIN_PATH}")
     fi
-fi
+    if ! security find-identity "${FIND_ARGS[@]}" 2>/dev/null | grep -q "${DEVELOPER_ID_APPLICATION}"; then
+        echo "[-] Error: DEVELOPER_ID_APPLICATION is set ('${DEVELOPER_ID_APPLICATION}'), but matching certificate is not present in keychain (${KEYCHAIN_PATH:-system search list})."
+        exit 1
+    fi
 
-if [ "$HAS_DEVELOPER_ID" = "1" ]; then
     echo "[*] Signing with Developer ID: ${DEVELOPER_ID_APPLICATION}"
     # Notarization requires every nested Mach-O to be signed individually (inside-out),
     # with hardened runtime and a secure timestamp. --deep alone is not sufficient.
+    SIGN_ARGS=("--force" "--timestamp" "--options" "runtime")
+    if [ -n "${KEYCHAIN_PATH}" ] && [ -f "${KEYCHAIN_PATH}" ]; then
+        SIGN_ARGS+=("--keychain" "${KEYCHAIN_PATH}")
+    fi
     find "${APP_DIR}/Contents" -type f \( -name "*.dylib" -o -name "*.so" -o -perm -111 \) -print0 |
     while IFS= read -r -d '' f; do
         if file "$f" | grep -q "Mach-O"; then
-            codesign --force --timestamp --options runtime ${ENTITLEMENTS_ARG} --sign "${DEVELOPER_ID_APPLICATION}" "$f"
+            codesign "${SIGN_ARGS[@]}" ${ENTITLEMENTS_ARG} --sign "${DEVELOPER_ID_APPLICATION}" "$f"
         fi
     done
-    codesign --force --timestamp --options runtime ${ENTITLEMENTS_ARG} --sign "${DEVELOPER_ID_APPLICATION}" "${APP_DIR}"
+    codesign "${SIGN_ARGS[@]}" ${ENTITLEMENTS_ARG} --sign "${DEVELOPER_ID_APPLICATION}" "${APP_DIR}"
     codesign --verify --strict --verbose=2 "${APP_DIR}"
     DICTY_SIGNED_WITH_DEVELOPER_ID=1
 else
@@ -433,7 +437,11 @@ rm -rf "$TEMP_DMG" "$DMG_ROOT"
 # Credentials: either NOTARY_KEYCHAIN_PROFILE (from `xcrun notarytool store-credentials`)
 # or APPLE_ID + APPLE_TEAM_ID + APPLE_APP_PASSWORD (app-specific password).
 if [ "${DICTY_SIGNED_WITH_DEVELOPER_ID:-0}" = "1" ]; then
-    codesign --force --timestamp --sign "${DEVELOPER_ID_APPLICATION}" "$DMG_FILE"
+    DMG_SIGN_ARGS=("--force" "--timestamp")
+    if [ -n "${KEYCHAIN_PATH}" ] && [ -f "${KEYCHAIN_PATH}" ]; then
+        DMG_SIGN_ARGS+=("--keychain" "${KEYCHAIN_PATH}")
+    fi
+    codesign "${DMG_SIGN_ARGS[@]}" --sign "${DEVELOPER_ID_APPLICATION}" "$DMG_FILE"
     NOTARY_ARGS=""
     if [ -n "${NOTARY_KEYCHAIN_PROFILE}" ]; then
         NOTARY_ARGS="--keychain-profile ${NOTARY_KEYCHAIN_PROFILE}"

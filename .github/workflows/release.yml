@@ -147,7 +147,10 @@ jobs:
 
   build_mac:
     needs: release
-    runs-on: macos-14
+    runs-on: macos-15
+    env:
+      DEVELOPER_ID_CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
+      DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -155,13 +158,12 @@ jobs:
           fetch-depth: 0
 
       - name: Import Apple Developer ID Certificate (if configured)
-        if: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 != '' }}
+        if: env.DEVELOPER_ID_CERTIFICATE_BASE64 != ''
         env:
-          DEVELOPER_ID_CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
-          DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD || 'dicty-build-temp' }}
         run: |
           KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
           echo "$DEVELOPER_ID_CERTIFICATE_BASE64" | base64 --decode > $RUNNER_TEMP/certificate.p12
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
@@ -187,6 +189,7 @@ jobs:
           MACOSX_DEPLOYMENT_TARGET: "14.0"
           DICTY_VERSION: ${{ needs.release.outputs.next_tag }}
           POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          KEYCHAIN_PATH: ${{ env.KEYCHAIN_PATH }}
           # Developer ID signing + notarization (leave unset to build a locally-signed DMG)
           DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
