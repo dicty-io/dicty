@@ -492,6 +492,10 @@ jobs:
       - name: Build Windows Tauri Installer (NSIS .exe)
         shell: powershell
         run: |
+          if (-not (Test-Path "DictyClientTauri\src-tauri\resources\dicty_engine\dicty_engine.exe")) {
+            Write-Error "[-] Missing DictyClientTauri\src-tauri\resources\dicty_engine\dicty_engine.exe before packaging."
+            exit 1
+          }
           $targetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { "DictyClientTauri\src-tauri\target" }
           Remove-Item -Path "$targetDir\release\bundle" -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item -Path "DictyClientTauri\src-tauri\target\release\bundle" -Recurse -Force -ErrorAction SilentlyContinue
