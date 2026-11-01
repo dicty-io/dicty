@@ -334,7 +334,9 @@ jobs:
           ./scripts/compile_whisper.sh
 
       - name: Build Engine Bundle (PyInstaller)
-        run: ./.venv/bin/pyinstaller --noconfirm dicty_engine.spec
+        run: |
+          test -f telemetry_config.json || echo "{}" > telemetry_config.json
+          ./.venv/bin/pyinstaller --noconfirm dicty_engine.spec
 
       - name: Verify Bundle Contents
         run: |
