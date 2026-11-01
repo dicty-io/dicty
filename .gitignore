@@ -89,9 +89,6 @@ updates_history.json
 scratch/
 
 # Local AI agent harness & private workspace configs
-.agents
-.agents/
-AGENTS.md
 .kilo/
 .opencode/
 
