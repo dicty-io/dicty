@@ -24,9 +24,7 @@ import {
 } from "../services/soundEffects";
 import {
   ACCENT_PRESETS,
-  getActiveAccent,
-  applyAccentColor,
-  type AccentPreset,
+  useAppAccent,
 } from "../services/themeService";
 
 interface ThemeCardProps {
@@ -43,9 +41,13 @@ const ThemeCard: React.FC<ThemeCardProps> = ({ title, theme, isSelected, onSelec
       className="flex flex-col items-center gap-2.5 cursor-pointer group select-none"
     >
       <div
-        className={`w-28 h-18 rounded-xl border relative overflow-hidden transition-all shadow-sm ${
+        style={{
+          borderColor: isSelected ? "var(--app-accent, #87B996)" : undefined,
+          boxShadow: isSelected ? "0 0 12px rgba(var(--app-accent-glow, 93, 102, 88), 0.35)" : undefined,
+        }}
+        className={`w-28 h-16 rounded-xl border relative overflow-hidden transition-all shadow-sm ${
           isSelected
-            ? "border-[#87B996] ring-2 ring-[#87B996]/30 shadow-[0_0_12px_rgba(135,185,150,0.25)]"
+            ? "ring-2 ring-[var(--app-accent,#87B996)]/30"
             : "border-white/15 hover:border-white/30"
         }`}
       >
@@ -138,12 +140,7 @@ export const PreferencesView: React.FC = () => {
   const [theme, setTheme] = useState<"auto" | "light" | "dark">(() => {
     return (localStorage.getItem("dicty_theme") as "auto" | "light" | "dark") || "dark";
   });
-  const [activeAccent, setActiveAccent] = useState<AccentPreset>(() => getActiveAccent());
-
-  const handleAccentSelect = (preset: AccentPreset) => {
-    setActiveAccent(preset);
-    applyAccentColor(preset);
-  };
+  const { accent: activeAccent, setAccent: handleAccentSelect } = useAppAccent();
   const [showInTaskbar, setShowInTaskbar] = useState(() => {
     return localStorage.getItem("dicty_show_in_taskbar") !== "false";
   });

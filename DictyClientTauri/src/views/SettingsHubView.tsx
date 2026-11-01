@@ -15,6 +15,7 @@ import { APISettingsView } from "./APISettingsView";
 import { SyncBackupView } from "./SyncBackupView";
 import { UpdatesView } from "./UpdatesView";
 import { engineApi } from "../services/engineApi";
+import { useAppAccent } from "../services/themeService";
 
 export type SettingsSubTab =
   | "general"
@@ -47,6 +48,7 @@ interface SettingsHubViewProps {
 }
 
 export const SettingsHubView: React.FC<SettingsHubViewProps> = ({ initialSubTab }) => {
+  const { info: accentInfo } = useAppAccent();
   const [activeSubTab, setActiveSubTab] = useState<SettingsSubTab>(() => {
     if (initialSubTab) return initialSubTab;
     try {
@@ -129,16 +131,23 @@ export const SettingsHubView: React.FC<SettingsHubViewProps> = ({ initialSubTab 
               <button
                 key={item.id}
                 onClick={() => handleSelectTab(item.id)}
-                className={`relative flex flex-col items-center justify-center min-w-[70px] px-3.5 py-1.5 rounded-xl transition-all ${
+                style={{
+                  backgroundColor: isSelected ? `rgba(${accentInfo.glowRgb}, 0.25)` : undefined,
+                  borderColor: isSelected ? `rgba(${accentInfo.glowRgb}, 0.45)` : "transparent",
+                }}
+                className={`relative flex flex-col items-center justify-center min-w-[70px] px-3.5 py-1.5 rounded-xl border transition-all ${
                   isSelected
-                    ? "bg-[#5D6658]/35 text-white border border-[#87B996]/30 shadow-sm"
-                    : "text-white/60 hover:text-white hover:bg-white/[0.04] border border-transparent"
+                    ? "text-white shadow-sm"
+                    : "text-white/60 hover:text-white hover:bg-white/[0.04]"
                 }`}
               >
                 <div className="relative">
                   <Icon
+                    style={{
+                      color: isSelected ? accentInfo.swatchDark : undefined,
+                    }}
                     className={`w-4 h-4 mb-1 transition-colors ${
-                      isSelected ? "text-[#87B996]" : "text-white/60"
+                      isSelected ? "" : "text-white/60"
                     }`}
                   />
                   {showBadge && (

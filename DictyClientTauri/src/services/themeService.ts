@@ -1,3 +1,5 @@
+import { useState, useEffect } from "react";
+
 export type AccentPreset =
   | "olive"
   | "black"
@@ -68,6 +70,18 @@ export const ACCENT_PRESETS: AccentInfo[] = [
 
 const ACCENT_STORAGE_KEY = "appAccentColor";
 
+function hexToRgb(hex: string): string {
+  let c = hex.replace("#", "");
+  if (c.length === 3) {
+    c = c.split("").map((x) => x + x).join("");
+  }
+  const num = parseInt(c, 16);
+  const r = (num >> 16) & 255;
+  const g = (num >> 8) & 255;
+  const b = num & 255;
+  return `${r}, ${g}, ${b}`;
+}
+
 export function getActiveAccent(): AccentPreset {
   if (typeof window === "undefined") return "olive";
   try {
@@ -85,7 +99,9 @@ export function applyAccentColor(preset: AccentPreset) {
   const root = document.documentElement;
 
   root.style.setProperty("--app-accent", info.swatchDark);
+  root.style.setProperty("--app-accent-rgb", hexToRgb(info.swatchDark));
   root.style.setProperty("--app-accent-active", info.activeHex);
+  root.style.setProperty("--app-accent-active-rgb", hexToRgb(info.activeHex));
   root.style.setProperty("--app-accent-glow", info.glowRgb);
 
   try {
@@ -97,8 +113,31 @@ export function applyAccentColor(preset: AccentPreset) {
   );
 }
 
+export function useAppAccent() {
+  const [accent, setAccentState] = useState<AccentPreset>(getActiveAccent);
+
+  useEffect(() => {
+    const handleChanged = (e: Event) => {
+      const preset = (e as CustomEvent<{ preset?: AccentPreset }>).detail?.preset;
+      if (preset) setAccentState(preset);
+    };
+    window.addEventListener("dicty:accent-color-changed", handleChanged as EventListener);
+    window.addEventListener("storage", () => setAccentState(getActiveAccent()));
+    return () => {
+      window.removeEventListener("dicty:accent-color-changed", handleChanged as EventListener);
+    };
+  }, []);
+
+  const info = ACCENT_PRESETS.find((p) => p.id === accent) || ACCENT_PRESETS[0];
+
+  return {
+    accent,
+    info,
+    setAccent: applyAccentColor,
+  };
+}
+
 // Auto-initialize on module load in browser
 if (typeof window !== "undefined") {
   applyAccentColor(getActiveAccent());
 }
-

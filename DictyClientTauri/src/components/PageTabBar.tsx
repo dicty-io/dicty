@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-react";
+import { useAppAccent } from "../services/themeService";
 
 export interface PageTabItem<T extends string = string> {
   id: T;
@@ -21,6 +22,8 @@ export function PageTabBar<T extends string = string>({
   tabs,
   className = "",
 }: PageTabBarProps<T>) {
+  const { info: accentInfo } = useAppAccent();
+
   return (
     <div
       className={`inline-flex items-center p-1 rounded-xl bg-white/[0.04] border border-white/10 backdrop-blur-md select-none ${className}`}
@@ -35,17 +38,21 @@ export function PageTabBar<T extends string = string>({
             role="tab"
             aria-selected={isSelected}
             onClick={() => onSelect(tab.id)}
+            style={{
+              backgroundColor: isSelected ? accentInfo.activeHex : undefined,
+            }}
             className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
               isSelected
-                ? "bg-[#5D6658] text-white shadow-sm shadow-[#5D6658]/30 font-semibold"
+                ? "text-white shadow-sm font-semibold"
                 : "text-white/60 hover:text-white hover:bg-white/[0.04]"
             }`}
           >
             {Icon && (
               <Icon
-                className={`w-3.5 h-3.5 transition-colors ${
-                  isSelected ? "text-white" : "text-[#87B996]"
-                }`}
+                style={{
+                  color: isSelected ? "#ffffff" : accentInfo.swatchDark,
+                }}
+                className="w-3.5 h-3.5 transition-colors"
               />
             )}
             <span>{tab.label}</span>

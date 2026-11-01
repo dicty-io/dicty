@@ -32,13 +32,18 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
           onChange(!checked);
         }
       }}
-      className={`relative inline-flex flex-shrink-0 items-center rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[#87B996]/60 ${
+      style={{
+        backgroundColor: disabled ? undefined : checked ? "var(--app-accent-active, #5D6658)" : undefined,
+        borderColor: disabled ? undefined : checked ? "rgba(var(--app-accent-rgb, 135, 185, 150), 0.45)" : undefined,
+        boxShadow: disabled || !checked ? undefined : "0 0 10px rgba(var(--app-accent-glow, 93, 102, 88), 0.3)",
+      }}
+      className={`relative inline-flex flex-shrink-0 items-center rounded-full transition-all duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent,#87B996)]/60 ${
         isSm ? "w-8 h-[18px]" : "w-10 h-[22px]"
       } ${
         disabled
           ? "opacity-35 cursor-not-allowed bg-white/10 border-white/5"
           : checked
-          ? "bg-[#5D6658] border border-[#727d6c]/60 shadow-[0_0_10px_rgba(93,102,88,0.25)] hover:bg-[#667061]"
+          ? "border hover:brightness-110"
           : "bg-white/[0.08] hover:bg-white/[0.14] border border-white/10"
       } ${className}`}
     >

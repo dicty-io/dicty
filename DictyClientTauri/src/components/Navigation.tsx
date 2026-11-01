@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { DictyLogo } from "./DictyLogo";
 import { engineApi } from "../services/engineApi";
+import { useAppAccent } from "../services/themeService";
 
 export type ActiveTab =
   | "home"
@@ -71,6 +72,7 @@ export const Navigation: React.FC<NavigationProps> = ({
   pendingUpdatesCount = 0,
   isGeneratingArchitecture = false,
 }) => {
+  const { info: accentInfo } = useAppAccent();
   const [hasUpdateBadge, setHasUpdateBadge] = useState<boolean>(false);
 
   useEffect(() => {
@@ -182,16 +184,20 @@ export const Navigation: React.FC<NavigationProps> = ({
                   <button
                     key={item.id}
                     onClick={() => onTabChange(item.id)}
+                    style={{
+                      backgroundColor: active ? accentInfo.activeHex : undefined,
+                    }}
                     className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
                       active
-                        ? "bg-[#5D6658] text-white shadow-sm"
+                        ? "text-white shadow-sm"
                         : "text-white/70 hover:text-white hover:bg-white/5"
                     }`}
                   >
                     <Icon
-                      className={`w-3.5 h-3.5 ${
-                        active ? "text-white" : "text-[#87B996]"
-                      }`}
+                      style={{
+                        color: active ? "#ffffff" : accentInfo.swatchDark,
+                      }}
+                      className="w-3.5 h-3.5 transition-colors"
                     />
                     <span className="truncate">{item.label}</span>
 
@@ -222,16 +228,20 @@ export const Navigation: React.FC<NavigationProps> = ({
       <div className="px-3 pt-3 border-t border-white/10 space-y-0.5">
         <button
           onClick={() => onTabChange("settings")}
+          style={{
+            backgroundColor: isSettingsActive ? accentInfo.activeHex : undefined,
+          }}
           className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all relative ${
             isSettingsActive
-              ? "bg-[#5D6658] text-white shadow-sm"
+              ? "text-white shadow-sm"
               : "text-white/70 hover:text-white hover:bg-white/5"
           }`}
         >
           <Settings
-            className={`w-3.5 h-3.5 ${
-              isSettingsActive ? "text-white" : "text-[#87B996]"
-            }`}
+            style={{
+              color: isSettingsActive ? "#ffffff" : accentInfo.swatchDark,
+            }}
+            className="w-3.5 h-3.5 transition-colors"
           />
           <span className="truncate">Settings</span>
 
@@ -247,16 +257,20 @@ export const Navigation: React.FC<NavigationProps> = ({
           onClick={() => {
             window.dispatchEvent(new CustomEvent("dicty:open-onboarding"));
           }}
+          style={{
+            backgroundColor: isHelpActive ? accentInfo.activeHex : undefined,
+          }}
           className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
             isHelpActive
-              ? "bg-[#5D6658] text-white shadow-sm"
+              ? "text-white shadow-sm"
               : "text-white/70 hover:text-white hover:bg-white/5"
           }`}
         >
           <CircleHelp
-            className={`w-3.5 h-3.5 ${
-              isHelpActive ? "text-white" : "text-[#87B996]"
-            }`}
+            style={{
+              color: isHelpActive ? "#ffffff" : accentInfo.swatchDark,
+            }}
+            className="w-3.5 h-3.5 transition-colors"
           />
           <span className="truncate">Help</span>
         </button>

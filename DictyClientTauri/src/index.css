@@ -4,8 +4,87 @@
 
 :root {
   --app-accent: #87B996;
+  --app-accent-rgb: 135, 185, 150;
   --app-accent-active: #5D6658;
+  --app-accent-active-rgb: 93, 102, 88;
   --app-accent-glow: 93, 102, 88;
+}
+
+/* Dynamic Accent Theme Global Overrides (1:1 with macOS AppAccentColor) */
+.text-\[\#87B996\],
+.text-\[\#87b996\],
+[class*="text-[#87b996]" i],
+[class*="text-[#87B996]" i],
+.text-sageGreen-light {
+  color: var(--app-accent) !important;
+}
+
+svg[class*="text-[#87b996]" i],
+svg[class*="text-[#87B996]" i] {
+  color: var(--app-accent) !important;
+  stroke: currentColor !important;
+}
+
+.bg-\[\#5D6658\],
+.bg-\[\#5d6658\],
+[class*="bg-[#5d6658]"]:not([class*="/"]):not([class*="hover"]):not([class*="focus"]),
+[class*="bg-[#5D6658]"]:not([class*="/"]):not([class*="hover"]):not([class*="focus"]),
+.bg-sageGreen {
+  background-color: var(--app-accent-active) !important;
+}
+
+.bg-\[\#5D6658\]\/10, .bg-\[\#5d6658\]\/10 { background-color: rgba(var(--app-accent-active-rgb), 0.10) !important; }
+.bg-\[\#5D6658\]\/15, .bg-\[\#5d6658\]\/15 { background-color: rgba(var(--app-accent-active-rgb), 0.15) !important; }
+.bg-\[\#5D6658\]\/20, .bg-\[\#5d6658\]\/20 { background-color: rgba(var(--app-accent-active-rgb), 0.20) !important; }
+.bg-\[\#5D6658\]\/25, .bg-\[\#5d6658\]\/25 { background-color: rgba(var(--app-accent-active-rgb), 0.25) !important; }
+.bg-\[\#5D6658\]\/30, .bg-\[\#5d6658\]\/30 { background-color: rgba(var(--app-accent-active-rgb), 0.30) !important; }
+.bg-\[\#5D6658\]\/35, .bg-\[\#5d6658\]\/35 { background-color: rgba(var(--app-accent-active-rgb), 0.35) !important; }
+.bg-\[\#5D6658\]\/40, .bg-\[\#5d6658\]\/40 { background-color: rgba(var(--app-accent-active-rgb), 0.40) !important; }
+.bg-\[\#5D6658\]\/50, .bg-\[\#5d6658\]\/50 { background-color: rgba(var(--app-accent-active-rgb), 0.50) !important; }
+
+.bg-\[\#87B996\]\/10, .bg-\[\#87b996\]\/10 { background-color: rgba(var(--app-accent-rgb), 0.10) !important; }
+.bg-\[\#87B996\]\/15, .bg-\[\#87b996\]\/15 { background-color: rgba(var(--app-accent-rgb), 0.15) !important; }
+.bg-\[\#87B996\]\/20, .bg-\[\#87b996\]\/20 { background-color: rgba(var(--app-accent-rgb), 0.20) !important; }
+.bg-\[\#87B996\]\/25, .bg-\[\#87b996\]\/25 { background-color: rgba(var(--app-accent-rgb), 0.25) !important; }
+.bg-\[\#87B996\]\/30, .bg-\[\#87b996\]\/30 { background-color: rgba(var(--app-accent-rgb), 0.30) !important; }
+
+.border-\[\#87B996\],
+.border-\[\#87b996\],
+[class*="border-[#87b996]" i]:not([class*="/"]),
+[class*="border-[#87B996]" i]:not([class*="/"]),
+.border-sageGreen-light {
+  border-color: var(--app-accent) !important;
+}
+
+.border-\[\#87B996\]\/20, .border-\[\#87b996\]\/20 { border-color: rgba(var(--app-accent-rgb), 0.20) !important; }
+.border-\[\#87B996\]\/30, .border-\[\#87b996\]\/30 { border-color: rgba(var(--app-accent-rgb), 0.30) !important; }
+.border-\[\#87B996\]\/40, .border-\[\#87b996\]\/40 { border-color: rgba(var(--app-accent-rgb), 0.40) !important; }
+.border-\[\#87B996\]\/50, .border-\[\#87b996\]\/50 { border-color: rgba(var(--app-accent-rgb), 0.50) !important; }
+
+.border-\[\#5D6658\],
+.border-\[\#5d6658\],
+[class*="border-[#5d6658]" i]:not([class*="/"]),
+[class*="border-[#5D6658]" i]:not([class*="/"]),
+.border-sageGreen {
+  border-color: var(--app-accent-active) !important;
+}
+
+.border-\[\#5D6658\]\/20, .border-\[\#5d6658\]\/20 { border-color: rgba(var(--app-accent-active-rgb), 0.20) !important; }
+.border-\[\#5D6658\]\/30, .border-\[\#5d6658\]\/30 { border-color: rgba(var(--app-accent-active-rgb), 0.30) !important; }
+.border-\[\#5D6658\]\/45, .border-\[\#5d6658\]\/45 { border-color: rgba(var(--app-accent-active-rgb), 0.45) !important; }
+.border-\[\#5D6658\]\/50, .border-\[\#5d6658\]\/50 { border-color: rgba(var(--app-accent-active-rgb), 0.50) !important; }
+
+.focus\:border-\[\#5D6658\]:focus,
+.focus\:border-\[\#5d6658\]:focus {
+  border-color: var(--app-accent) !important;
+}
+
+input[type="range"].accent-\[\#87B996\],
+input[type="range"].accent-\[\#87b996\],
+[class*="accent-[#87b996]" i],
+[class*="accent-[#87B996]" i],
+.accent-sageGreen-light {
+  accent-color: var(--app-accent) !important;
 }
 
 @layer base {
