@@ -105,12 +105,8 @@ export const UpdatesView: React.FC = () => {
         if (res.error && !res.latest_version) {
           setErrorMsg(res.error);
         } else {
-          // If the engine reports has_update, but provided no download_url,
-          // the engine may be an older build that only checked /releases/latest.
-          // Don't treat check as resolved; let direct GitHub fetch find the OS-specific installer.
-          if (!hasUpdate || res.download_url) {
-            checkSucceeded = true;
-          }
+          checkSucceeded = true;
+          setErrorMsg(null);
         }
       }
     } catch (engineErr) {
@@ -118,7 +114,7 @@ export const UpdatesView: React.FC = () => {
     }
 
     // 2. Fallback to direct GitHub API fetch if local engine was offline / starting / missing download_url
-    if (!checkSucceeded) {
+    if (!checkSucceeded || (updateInfo?.has_update && !updateInfo?.download_url)) {
       const isWindows = navigator.userAgent.includes("Windows") || navigator.platform.includes("Win");
       const isMac = navigator.userAgent.includes("Mac") || navigator.platform.includes("Mac");
 
@@ -164,7 +160,7 @@ export const UpdatesView: React.FC = () => {
       }
 
       for (const url of reposToTry) {
-        if (checkSucceeded) break;
+        if (checkSucceeded && updateInfo?.download_url) break;
         try {
           const ghRes = await fetch(url, { headers: ghHeaders });
           if (!ghRes.ok) continue;
@@ -214,7 +210,7 @@ export const UpdatesView: React.FC = () => {
             setErrorMsg(null);
             checkSucceeded = true;
             break;
-          } else {
+          } else if (!checkSucceeded) {
             // Releases exist, but none contained an installer for current OS
             const topRel = releasesList[0];
             const latestTag = topRel.tag_name || "";
@@ -248,6 +244,7 @@ export const UpdatesView: React.FC = () => {
       const nowStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
       setLastCheckedTime(nowStr);
       localStorage.setItem("dicty_last_update_check", nowStr);
+      setErrorMsg(null);
     } else {
       setErrorMsg("Unable to reach GitHub update servers. Please check your internet connection.");
     }
