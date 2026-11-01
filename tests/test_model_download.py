@@ -80,6 +80,7 @@ class TestModelDownload(unittest.TestCase):
                  patch.object(self.mm, "MODELS_DIR", tmp_dir), \
                  patch("sys.platform", "darwin"), \
                  patch("platform.system", return_value="Darwin"), \
+                 patch.dict("sys.modules", {"faster_whisper": None}), \
                  patch("httpx.stream") as mock_stream, \
                  patch.object(self.mm, "set_model_quality"):
 
@@ -118,6 +119,7 @@ class TestModelDownload(unittest.TestCase):
                  patch.object(self.mm, "MODELS_DIR", tmp_dir), \
                  patch("sys.platform", "darwin"), \
                  patch("platform.system", return_value="Darwin"), \
+                 patch.dict("sys.modules", {"faster_whisper": None}), \
                  patch("httpx.stream", side_effect=httpx.ConnectError("Network unreachable")):
 
                 self.mm._download_worker(model_data, "q5_0", None, on_complete)

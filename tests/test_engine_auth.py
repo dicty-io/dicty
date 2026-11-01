@@ -142,9 +142,10 @@ class TestEngineAuth(unittest.TestCase):
         token_path = os.path.join(dicty_paths.get_user_data_dir(), "engine.token")
         self.assertTrue(os.path.isfile(token_path), f"Token file must exist at {token_path}")
 
-        # Check file permissions (owner read/write only)
-        st_mode = stat.S_IMODE(os.stat(token_path).st_mode)
-        self.assertEqual(st_mode, 0o600, f"Token file mode should be 0600, got {oct(st_mode)}")
+        # Check file permissions (owner read/write only on POSIX systems)
+        if sys.platform != "win32":
+            st_mode = stat.S_IMODE(os.stat(token_path).st_mode)
+            self.assertEqual(st_mode, 0o600, f"Token file mode should be 0600, got {oct(st_mode)}")
 
         # Check JSON payload
         with open(token_path, "r", encoding="utf-8") as f:

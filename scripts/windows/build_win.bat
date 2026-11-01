@@ -4,12 +4,15 @@ REM Packages the Dicty backend into a standalone Windows executable directory us
 
 setlocal enabledelayedexpansion
 
+for %%I in ("%~dp0..\..") do set "REPO_ROOT=%%~fI"
+cd /d "%REPO_ROOT%"
+
 echo [*] Installing PyInstaller in virtual environment...
 .venv\Scripts\pip install pyinstaller
 
 echo [*] Checking for whisper.cpp native binaries...
-if exist scripts\windows\compile_whisper.bat (
-    call scripts\windows\compile_whisper.bat
+if exist "%~dp0compile_whisper.bat" (
+    call "%~dp0compile_whisper.bat"
 )
 
 echo [*] Cleaning previous build artifacts...

@@ -4,6 +4,9 @@ REM Compiles whisper.cpp for Windows using CMake and MSVC with AVX2/CUDA support
 
 setlocal enabledelayedexpansion
 
+for %%I in ("%~dp0..\..") do set "REPO_ROOT=%%~fI"
+cd /d "%REPO_ROOT%"
+
 REM 1. Resolve persistent runner cache directory
 set "CACHE_DIR="
 if defined RUNNER_CACHE_DIR (
