@@ -36,4 +36,9 @@ if exist DictyClientTauri\src-tauri\resources\dicty_engine (
 mkdir DictyClientTauri\src-tauri\resources\dicty_engine
 xcopy /E /I /Y dist\dicty_engine DictyClientTauri\src-tauri\resources\dicty_engine >nul
 
+if not exist DictyClientTauri\src-tauri\resources\dicty_engine\dicty_engine.exe (
+    echo [-] Error: DictyClientTauri\src-tauri\resources\dicty_engine\dicty_engine.exe was not staged successfully!
+    exit /b 1
+)
+
 echo [+] Build complete! Standalone Windows engine is located at: dist\dicty_engine\dicty_engine.exe
