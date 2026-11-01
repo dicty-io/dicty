@@ -1,8 +1,8 @@
 -r requirements.txt
 av>=19.0.2,<20.0.0
 faster-whisper==1.2.1
-ctranslate2==4.8.3
-onnxruntime>=1.31.0,<2.0.0
+ctranslate2==4.8.4
+onnxruntime>=1.31.1,<2.0.0
 nvidia-cublas-cu12>=12.9.2.10
 pyinstaller
 cmake
