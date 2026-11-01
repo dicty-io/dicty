@@ -1,5 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 from PyInstaller.utils.hooks import collect_all
+
+# Ensure optional runtime config file exists so PyInstaller packaging does not fail on clean checkouts
+if not os.path.exists('telemetry_config.json'):
+    with open('telemetry_config.json', 'w', encoding='utf-8') as f:
+        f.write('{}\n')
 
 datas = [('bin/whisper.cpp/build/bin/whisper-cli', 'bin'), ('bin/whisper.cpp/build/bin/whisper-server', 'bin'), ('models_config.json', '.'), ('telemetry_config.json', '.'), ('.env.example', '.env')]
 binaries = []
