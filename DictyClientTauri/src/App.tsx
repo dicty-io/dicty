@@ -8,20 +8,13 @@ import { HomeView } from "./views/HomeView";
 import { ModesView } from "./views/ModesView";
 import { getStoredProfiles } from "./types/profiles";
 import { ModelsView } from "./views/ModelsView";
-import { VoiceQueueView } from "./views/VoiceQueueView";
 import { ProjectsView } from "./views/ProjectsView";
-import { KnowledgeBaseView } from "./views/KnowledgeBaseView";
-import { PendingUpdatesView } from "./views/PendingUpdatesView";
-import { PromptsSettingsView } from "./views/PromptsSettingsView";
 import { WordsView } from "./views/WordsView";
-import { AccountView } from "./views/AccountView";
 import { TranscribeFileView } from "./views/TranscribeFileView";
-import { APISettingsView } from "./views/APISettingsView";
-import { ShortcutsView } from "./views/ShortcutsView";
-import { PreferencesView } from "./views/PreferencesView";
-import { SyncBackupView } from "./views/SyncBackupView";
 import { HistoryView } from "./views/HistoryView";
-import { UpdatesView } from "./views/UpdatesView";
+import { SettingsHubView } from "./views/SettingsHubView";
+import { InsightsView } from "./views/InsightsView";
+import { TextToVoiceView } from "./views/TextToVoiceView";
 import { RecordingOverlayHUD } from "./views/RecordingOverlayHUD";
 import { ModeSwitcherHUDView } from "./views/ModeSwitcherHUDView";
 import { OnboardingModal } from "./components/OnboardingModal";
@@ -30,15 +23,35 @@ import { engineFetch } from "./services/engineClient";
 import { useArchitectureTask } from "./services/architectureTaskService";
 
 const VALID_TABS: ActiveTab[] = [
-  "home", "modes", "models", "voice_queue", "projects", "knowledge",
-  "pending_updates", "prompts", "words", "vocabulary", "account", "transcribe",
-  "api_keys", "shortcuts", "preferences", "sync_backup", "history", "updates"
+  "home",
+  "modes",
+  "words",
+  "history",
+  "insights",
+  "transcribe",
+  "tts",
+  "projects",
+  "models",
+  "settings",
+  "help",
+  // Legacy / deep-link alias tabs
+  "voice_queue",
+  "knowledge",
+  "pending_updates",
+  "prompts",
+  "vocabulary",
+  "account",
+  "api_keys",
+  "shortcuts",
+  "preferences",
+  "sync_backup",
+  "updates",
 ];
 
 /// Tabs removed or merged keep working: a saved or deep-linked old value lands
 /// on the page that holds them now.
 function normalizeLegacyTab(tab: ActiveTab | null): ActiveTab | null {
-  if (tab === "vocabulary") return "words";
+  if (tab === "vocabulary" || tab === "prompts") return "words";
   return tab;
 }
 
@@ -398,12 +411,12 @@ export default function App() {
     return (
       <div className="flex h-screen w-screen bg-[#121418] text-white overflow-hidden select-none font-sans relative">
         <div
-          className="absolute w-[450px] h-[450px] rounded-full blur-[110px] pointer-events-none -top-32 -left-20"
-          style={{ background: "rgba(93, 102, 88, 0.2)" }}
+          className="absolute w-[450px] h-[450px] rounded-full blur-[110px] pointer-events-none -top-32 -left-20 transition-all duration-700"
+          style={{ background: "rgba(var(--app-accent-glow), 0.2)" }}
         />
         <div
-          className="absolute w-[450px] h-[450px] rounded-full blur-[110px] pointer-events-none -bottom-32 -right-20"
-          style={{ background: "rgba(56, 181, 115, 0.12)" }}
+          className="absolute w-[450px] h-[450px] rounded-full blur-[110px] pointer-events-none -bottom-32 -right-20 transition-all duration-700"
+          style={{ background: "rgba(var(--app-accent-glow), 0.12)" }}
         />
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative z-10">
           <HistoryView />
@@ -416,12 +429,12 @@ export default function App() {
     <div className="flex h-screen w-screen bg-[#121418] text-white overflow-hidden select-none font-sans relative">
       {/* Dicty's Signature Animated Ambient Glow Blobs (from MainViews.swift) */}
       <div
-        className="absolute w-[450px] h-[450px] rounded-full blur-[110px] pointer-events-none -top-32 -left-20"
-        style={{ background: "rgba(93, 102, 88, 0.2)" }}
+        className="absolute w-[450px] h-[450px] rounded-full blur-[110px] pointer-events-none -top-32 -left-20 transition-all duration-700"
+        style={{ background: "rgba(var(--app-accent-glow), 0.2)" }}
       />
       <div
-        className="absolute w-[450px] h-[450px] rounded-full blur-[110px] pointer-events-none -bottom-32 -right-20"
-        style={{ background: "rgba(56, 181, 115, 0.12)" }}
+        className="absolute w-[450px] h-[450px] rounded-full blur-[110px] pointer-events-none -bottom-32 -right-20 transition-all duration-700"
+        style={{ background: "rgba(var(--app-accent-glow), 0.12)" }}
       />
 
       {/* Backend Offline Floating Banner */}
@@ -455,20 +468,51 @@ export default function App() {
         {activeTab === "home" && <HomeView />}
         {activeTab === "modes" && <ModesView onNavigateTab={handleTabChange} />}
         {activeTab === "models" && <ModelsView />}
-        {activeTab === "voice_queue" && <VoiceQueueView />}
-        {activeTab === "projects" && <ProjectsView onNavigateTab={handleTabChange} />}
-        {activeTab === "knowledge" && <KnowledgeBaseView />}
-        {activeTab === "pending_updates" && <PendingUpdatesView />}
-        {activeTab === "prompts" && <PromptsSettingsView />}
-        {(activeTab === "words" || activeTab === "vocabulary") && <WordsView />}
-        {activeTab === "account" && <AccountView />}
-        {activeTab === "transcribe" && <TranscribeFileView />}
-        {activeTab === "api_keys" && <APISettingsView />}
-        {activeTab === "shortcuts" && <ShortcutsView />}
-        {activeTab === "preferences" && <PreferencesView />}
-        {activeTab === "sync_backup" && <SyncBackupView />}
+        {(activeTab === "words" || activeTab === "vocabulary" || activeTab === "prompts") && (
+          <WordsView />
+        )}
         {activeTab === "history" && <HistoryView />}
-        {activeTab === "updates" && <UpdatesView />}
+        {activeTab === "insights" && <InsightsView />}
+        {activeTab === "transcribe" && <TranscribeFileView />}
+        {activeTab === "tts" && <TextToVoiceView />}
+        {activeTab === "projects" && (
+          <ProjectsView
+            onNavigateTab={handleTabChange}
+            stagedThoughtsCount={stagedThoughtsCount}
+            pendingUpdatesCount={pendingUpdatesCount}
+          />
+        )}
+        {activeTab === "voice_queue" && (
+          <ProjectsView
+            onNavigateTab={handleTabChange}
+            initialSubTab="queue"
+            stagedThoughtsCount={stagedThoughtsCount}
+            pendingUpdatesCount={pendingUpdatesCount}
+          />
+        )}
+        {activeTab === "knowledge" && (
+          <ProjectsView
+            onNavigateTab={handleTabChange}
+            initialSubTab="knowledge"
+            stagedThoughtsCount={stagedThoughtsCount}
+            pendingUpdatesCount={pendingUpdatesCount}
+          />
+        )}
+        {activeTab === "pending_updates" && (
+          <ProjectsView
+            onNavigateTab={handleTabChange}
+            initialSubTab="pending_updates"
+            stagedThoughtsCount={stagedThoughtsCount}
+            pendingUpdatesCount={pendingUpdatesCount}
+          />
+        )}
+        {activeTab === "settings" && <SettingsHubView />}
+        {activeTab === "preferences" && <SettingsHubView initialSubTab="general" />}
+        {activeTab === "shortcuts" && <SettingsHubView initialSubTab="shortcuts" />}
+        {activeTab === "account" && <SettingsHubView initialSubTab="account" />}
+        {activeTab === "api_keys" && <SettingsHubView initialSubTab="api_keys" />}
+        {activeTab === "sync_backup" && <SettingsHubView initialSubTab="sync" />}
+        {activeTab === "updates" && <SettingsHubView initialSubTab="updates" />}
       </main>
 
       {/* Dicty Windows Onboarding Flow (1:1 with SwiftUI OnboardingView) */}

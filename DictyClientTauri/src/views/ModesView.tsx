@@ -17,11 +17,14 @@ import {
   AppWindow,
   Users,
   Loader2,
+  SlidersHorizontal,
 } from "lucide-react";
 import { SettingsPageHeader } from "../components/SettingsPageHeader";
 import { FeatureHelpButton } from "../components/FeatureHelpModal";
 import { ToggleSwitch } from "../components/ToggleSwitch";
 import { engineApi } from "../services/engineApi";
+import { AppRulesSettingsView } from "./AppRulesSettingsView";
+import { PageTabBar } from "../components/PageTabBar";
 import {
   modesStore,
   useModesStore,
@@ -202,6 +205,7 @@ export const ModesView: React.FC<ModesViewProps> = ({ onNavigateTab }) => {
     }
   });
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+  const [modesSubTab, setModesSubTab] = useState<"modes" | "app_rules">("modes");
   const [showAppRules, setShowAppRules] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
 
@@ -345,94 +349,109 @@ export const ModesView: React.FC<ModesViewProps> = ({ onNavigateTab }) => {
   );
 
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) || null;
-
-  if (selectedProfile) {
-    return (
-      <ModeDetail
-        profile={selectedProfile}
-        state={state}
-        profilesCount={profiles.length}
-        isActive={selectedProfile.id === activeProfileId}
-        onBack={() => setSelectedProfileId(null)}
-        onActivate={() => activateProfile(selectedProfile)}
-        onUpdateProfile={updateProfile}
-        onUpdateEngine={(patch) => updateEngineForProfile(selectedProfile, patch)}
-        onDelete={() => deleteProfile(selectedProfile)}
-        onNavigateTab={(tab) => onNavigateTab?.(tab)}
-      />
-    );
-  }
-
   const dictationProfiles = profiles.filter((profile) => !isMeetingProfile(profile));
   const meetingProfiles = profiles.filter((profile) => isMeetingProfile(profile));
 
   return (
-    <div className="w-full flex-1 overflow-y-auto overflow-x-hidden p-5 sm:p-8 max-w-4xl mx-auto space-y-6 select-none">
-      <div className="flex items-start justify-between gap-3">
-        <SettingsPageHeader
-          title="Modes"
-          description="One place for how Dicty writes. Each mode has its own style, corrections and apps."
-          helpTopic="modes"
-        />
-        <button
-          onClick={() => setIsCreating(true)}
-          className="shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#5D6658] hover:bg-[#6A7565] text-white text-xs font-semibold transition-colors"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>Create mode</span>
-        </button>
-      </div>
-
-      {/* Automatic app rules */}
-      <div className="dicty-card p-4 flex items-start justify-between gap-4">
-        <div className="min-w-0 space-y-1">
-          <div className="text-sm font-semibold text-white">Pick the mode by app automatically</div>
-          <p className="text-xs text-white/55 leading-relaxed">
-            Dicty looks at the app in front of you and uses the mode you set for it.
-          </p>
-          <button
-            onClick={() => setShowAppRules(true)}
-            className="text-[11px] font-medium text-[#87B996] hover:underline"
-          >
-            See all app rules
-          </button>
-        </div>
-        <ToggleSwitch
-          checked={state.automaticAppRules}
-          onChange={(value) => modesStore.setAutomaticAppRules(value)}
-          ariaLabel="Pick the mode by app automatically"
+    <div className="flex-1 flex flex-col min-h-0 min-w-0 select-none">
+      {/* Top Segmented Tabs: Modes | App Rules (1:1 with ModesView.swift) */}
+      <div className="px-8 pt-5 pb-3 border-b border-white/10 shrink-0 bg-black/20 backdrop-blur-md">
+        <PageTabBar
+          selection={modesSubTab}
+          onSelect={setModesSubTab}
+          tabs={[
+            { id: "modes", label: "Modes", icon: SlidersHorizontal },
+            { id: "app_rules", label: "App Rules", icon: AppWindow },
+          ]}
         />
       </div>
 
-      {state.errorMessage && (
-        <div className="flex items-center gap-2 text-[11px] text-white/45">
-          <AlertTriangle className="w-3.5 h-3.5" />
-          <span>{state.errorMessage} Your modes still work from this PC.</span>
-          <button onClick={() => modesStore.refresh()} className="text-[#87B996] hover:underline">
-            Try again
-          </button>
-        </div>
-      )}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {modesSubTab === "app_rules" ? (
+          <AppRulesSettingsView />
+        ) : selectedProfile ? (
+          <ModeDetail
+            profile={selectedProfile}
+            state={state}
+            profilesCount={profiles.length}
+            isActive={selectedProfile.id === activeProfileId}
+            onBack={() => setSelectedProfileId(null)}
+            onActivate={() => activateProfile(selectedProfile)}
+            onUpdateProfile={updateProfile}
+            onUpdateEngine={(patch) => updateEngineForProfile(selectedProfile, patch)}
+            onDelete={() => deleteProfile(selectedProfile)}
+            onNavigateTab={(tab) => onNavigateTab?.(tab)}
+          />
+        ) : (
+          <div className="w-full overflow-x-hidden p-5 sm:p-8 max-w-4xl mx-auto space-y-6">
+            <div className="flex items-start justify-between gap-3">
+              <SettingsPageHeader
+                title="Modes"
+                description="One place for how Dicty writes. Each mode has its own style, corrections and apps."
+                helpTopic="modes"
+              />
+              <button
+                onClick={() => setIsCreating(true)}
+                className="shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#5D6658] hover:bg-[#6A7565] text-white text-xs font-semibold transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Create mode</span>
+              </button>
+            </div>
 
-      <ModeGroup
-        title="Dictation"
-        profiles={dictationProfiles}
-        state={state}
-        activeProfileId={activeProfileId}
-        onOpen={setSelectedProfileId}
-      />
-      <ModeGroup
-        title="Meetings"
-        profiles={meetingProfiles}
-        state={state}
-        activeProfileId={activeProfileId}
-        onOpen={setSelectedProfileId}
-      />
+            {/* Automatic app rules */}
+            <div className="dicty-card p-4 flex items-start justify-between gap-4">
+              <div className="min-w-0 space-y-1">
+                <div className="text-sm font-semibold text-white">Pick the mode by app automatically</div>
+                <p className="text-xs text-white/55 leading-relaxed">
+                  Dicty looks at the app in front of you and uses the mode you set for it.
+                </p>
+                <button
+                  onClick={() => setModesSubTab("app_rules")}
+                  className="text-[11px] font-medium text-[#87B996] hover:underline"
+                >
+                  See all app rules
+                </button>
+              </div>
+              <ToggleSwitch
+                checked={state.automaticAppRules}
+                onChange={(value) => modesStore.setAutomaticAppRules(value)}
+                ariaLabel="Pick the mode by app automatically"
+              />
+            </div>
 
-      {showAppRules && <AppRulesSheet state={state} onClose={() => setShowAppRules(false)} />}
-      {isCreating && (
-        <NewModeSheet onClose={() => setIsCreating(false)} onCreate={createMode} />
-      )}
+            {state.errorMessage && (
+              <div className="flex items-center gap-2 text-[11px] text-white/45">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>{state.errorMessage} Your modes still work from this PC.</span>
+                <button onClick={() => modesStore.refresh()} className="text-[#87B996] hover:underline">
+                  Try again
+                </button>
+              </div>
+            )}
+
+            <ModeGroup
+              title="Dictation"
+              profiles={dictationProfiles}
+              state={state}
+              activeProfileId={activeProfileId}
+              onOpen={setSelectedProfileId}
+            />
+            <ModeGroup
+              title="Meetings"
+              profiles={meetingProfiles}
+              state={state}
+              activeProfileId={activeProfileId}
+              onOpen={setSelectedProfileId}
+            />
+
+            {showAppRules && <AppRulesSheet state={state} onClose={() => setShowAppRules(false)} />}
+            {isCreating && (
+              <NewModeSheet onClose={() => setIsCreating(false)} onCreate={createMode} />
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

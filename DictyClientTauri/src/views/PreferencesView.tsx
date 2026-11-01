@@ -22,6 +22,12 @@ import {
   SystemSoundEntry,
   DEFAULT_WINDOWS_SOUNDS,
 } from "../services/soundEffects";
+import {
+  ACCENT_PRESETS,
+  getActiveAccent,
+  applyAccentColor,
+  type AccentPreset,
+} from "../services/themeService";
 
 interface ThemeCardProps {
   title: string;
@@ -132,6 +138,12 @@ export const PreferencesView: React.FC = () => {
   const [theme, setTheme] = useState<"auto" | "light" | "dark">(() => {
     return (localStorage.getItem("dicty_theme") as "auto" | "light" | "dark") || "dark";
   });
+  const [activeAccent, setActiveAccent] = useState<AccentPreset>(() => getActiveAccent());
+
+  const handleAccentSelect = (preset: AccentPreset) => {
+    setActiveAccent(preset);
+    applyAccentColor(preset);
+  };
   const [showInTaskbar, setShowInTaskbar] = useState(() => {
     return localStorage.getItem("dicty_show_in_taskbar") !== "false";
   });
@@ -438,6 +450,34 @@ export const PreferencesView: React.FC = () => {
             isSelected={theme === "dark"}
             onSelect={() => setTheme("dark")}
           />
+        </div>
+
+        {/* Dynamic Accent Color Palette (1:1 with AppAccentColor.swift) */}
+        <div className="space-y-2 pt-2">
+          <span className="text-xs font-medium text-white/90">Accent Theme Color</span>
+          <div className="flex items-center gap-3">
+            {ACCENT_PRESETS.map((preset) => {
+              const isSelected = activeAccent === preset.id;
+              return (
+                <button
+                  key={preset.id}
+                  onClick={() => handleAccentSelect(preset.id)}
+                  title={preset.displayName}
+                  className={`w-7 h-7 rounded-full transition-all flex items-center justify-center relative ${
+                    isSelected
+                      ? "ring-2 ring-white ring-offset-2 ring-offset-[#121418] scale-110 shadow-lg"
+                      : "hover:scale-105 opacity-80 hover:opacity-100"
+                  }`}
+                  style={{ backgroundColor: preset.swatchDark }}
+                >
+                  {isSelected && <Check className="w-3.5 h-3.5 text-black stroke-[3]" />}
+                </button>
+              );
+            })}
+            <span className="text-xs text-white/60 ml-2 font-medium">
+              {ACCENT_PRESETS.find((p) => p.id === activeAccent)?.displayName || "Olive"}
+            </span>
+          </div>
         </div>
       </div>
 

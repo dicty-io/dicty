@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --app-accent: #87B996;
+  --app-accent-active: #5D6658;
+  --app-accent-glow: 93, 102, 88;
+}
+
 @layer base {
   html, body {
     margin: 0;
@@ -54,8 +60,8 @@
 }
 
 .dicty-card-active {
-  background-color: rgba(93, 102, 88, 0.15);
-  border: 1px solid #5D6658;
+  background-color: rgba(var(--app-accent-glow), 0.15);
+  border: 1px solid var(--app-accent-active);
 }
 
 /* Dicty Floating HUD Capsule */
