@@ -31,7 +31,7 @@ export const HomeHUDView: React.FC = () => {
 
   // Equalizer pulse
   useEffect(() => {
-    let interval: NodeJS.Timeout | null = null;
+    let interval: ReturnType<typeof setInterval> | null = null;
     if (isRecording && !isPaused) {
       interval = setInterval(() => {
         setVolume(0.2 + Math.random() * 0.8);
@@ -44,7 +44,7 @@ export const HomeHUDView: React.FC = () => {
 
   // Timer
   useEffect(() => {
-    let timer: NodeJS.Timeout | null = null;
+    let timer: ReturnType<typeof setInterval> | null = null;
     if (isRecording && !isPaused) {
       timer = setInterval(() => setElapsed((e) => e + 1), 1000);
     } else if (!isRecording) {

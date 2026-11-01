@@ -43,7 +43,7 @@ export const OverlayHUDView: React.FC = () => {
 
   // Timer simulation
   useEffect(() => {
-    let timer: NodeJS.Timeout | null = null;
+    let timer: ReturnType<typeof setInterval> | null = null;
     if (isRecording && !isPaused) {
       timer = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
     } else if (!isRecording) {
@@ -57,7 +57,7 @@ export const OverlayHUDView: React.FC = () => {
 
   // Audio wave pulse animation simulation
   useEffect(() => {
-    let waveInterval: NodeJS.Timeout | null = null;
+    let waveInterval: ReturnType<typeof setInterval> | null = null;
     if (isRecording && !isPaused) {
       waveInterval = setInterval(() => {
         setVolume(0.2 + Math.random() * 0.8);

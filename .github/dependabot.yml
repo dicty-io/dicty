@@ -39,6 +39,9 @@ updates:
       npm-dependencies:
         patterns:
           - "*"
+    ignore:
+      - dependency-name: "tailwindcss"
+        update-types: ["version-update:semver-major"]
 
   # 5. Windows Tauri Rust Dependencies (DictyClientTauri/src-tauri/Cargo.toml)
   - package-ecosystem: "cargo"
