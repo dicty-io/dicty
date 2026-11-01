@@ -101,3 +101,4 @@ export function applyAccentColor(preset: AccentPreset) {
 if (typeof window !== "undefined") {
   applyAccentColor(getActiveAccent());
 }
+

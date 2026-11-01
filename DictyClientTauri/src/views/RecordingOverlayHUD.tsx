@@ -13,6 +13,8 @@ import {
   Sparkles,
   Check,
   RotateCcw,
+  Mic,
+  MicOff,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -41,6 +43,9 @@ export const RecordingOverlayHUD: React.FC = () => {
   const [isMini, setIsMini] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [volumePulse, setVolumePulse] = useState(0.6);
+  const [isMicMuted, setIsMicMuted] = useState(false);
+
+  const isMeetingMode = activeMode === "meeting" || activeMode === "focused_meeting";
 
   // App rules & resolved mode state
   const [targetAppId, setTargetAppId] = useState<string | null>(null);
@@ -377,6 +382,18 @@ export const RecordingOverlayHUD: React.FC = () => {
     }
   };
 
+  const handleToggleMicMute = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    e?.preventDefault();
+    const nextMuted = !isMicMuted;
+    setIsMicMuted(nextMuted);
+    try {
+      await engineApi.setMicMuted(nextMuted);
+    } catch (err) {
+      console.warn("Failed to toggle mic mute:", err);
+    }
+  };
+
   const handleStopRecording = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
     e?.preventDefault();
@@ -628,6 +645,21 @@ export const RecordingOverlayHUD: React.FC = () => {
                 <Square className="w-3 h-3 fill-white text-white" />
               </button>
 
+              {isMeetingMode && (
+                <button
+                  type="button"
+                  onClick={handleToggleMicMute}
+                  title={isMicMuted ? "Unmute Microphone" : "Mute Microphone (Record system audio only)"}
+                  className={`w-6 h-6 rounded-full flex items-center justify-center transition-all ${
+                    isMicMuted
+                      ? "bg-amber-500/35 text-amber-300 border border-amber-500/50"
+                      : "bg-white/10 hover:bg-white/20 text-white"
+                  }`}
+                >
+                  {isMicMuted ? <MicOff className="w-3 h-3 text-amber-300" /> : <Mic className="w-3 h-3" />}
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => handleToggleMini(false)}
@@ -684,6 +716,11 @@ export const RecordingOverlayHUD: React.FC = () => {
                   <span className="text-[11px] font-mono text-white/80 ml-1">
                     {formatTime(elapsed)}
                   </span>
+                  {isMicMuted && (
+                    <span title="Microphone Muted (System Audio Only)">
+                      <MicOff className="w-3 h-3 text-amber-300 ml-1 flex-shrink-0" />
+                    </span>
+                  )}
                 </div>
               )}
 
@@ -883,6 +920,28 @@ export const RecordingOverlayHUD: React.FC = () => {
                 </>
               )}
             </button>
+
+            {/* Selective Meeting Mode Mic Mute Toggle */}
+            {isMeetingMode && (
+              <button
+                type="button"
+                onClick={handleToggleMicMute}
+                disabled={isProcessing}
+                title={isMicMuted ? "Unmute Microphone" : "Mute Microphone (Record system audio only)"}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all whitespace-nowrap ${
+                  isMicMuted
+                    ? "bg-amber-500/35 text-amber-300 border border-amber-500/60 hover:bg-amber-500/50 shadow-[0_0_10px_rgba(245,158,11,0.25)]"
+                    : "bg-white/10 text-white/90 hover:bg-white/15"
+                }`}
+              >
+                {isMicMuted ? (
+                  <MicOff className="w-3 h-3 text-amber-300 flex-shrink-0" />
+                ) : (
+                  <Mic className="w-3 h-3 text-white flex-shrink-0" />
+                )}
+                <span>{isMicMuted ? "Unmute Mic" : "Mute Mic"}</span>
+              </button>
+            )}
 
             {/* Cancel Button */}
             <button

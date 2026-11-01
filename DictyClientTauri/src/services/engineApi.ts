@@ -44,6 +44,11 @@ export const engineApi = {
     return res.json();
   },
 
+  async setMicMuted(isMuted: boolean) {
+    const res = await engineFetch(`/recording/mute?is_muted=${isMuted}`, { method: "POST" });
+    return res.json();
+  },
+
   // --- Audio Devices ---
   async getDevices() {
     const res = await engineFetch(`/devices`);

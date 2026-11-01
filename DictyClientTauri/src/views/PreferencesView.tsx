@@ -156,6 +156,9 @@ export const PreferencesView: React.FC = () => {
   const [showModeLabel, setShowModeLabel] = useState(() => {
     return localStorage.getItem("dicty_show_mode_label") !== "false";
   });
+  const [overlayDockPosition, setOverlayDockPosition] = useState(() => {
+    return localStorage.getItem("overlayDockPosition") || "bottom";
+  });
 
   // Mode Accent Colors
   const [dictationColor, setDictationColor] = useState(() => {
@@ -591,6 +594,28 @@ export const PreferencesView: React.FC = () => {
             />
           </div>
         )}
+
+        {/* HUD Dock Positioning (1:1 with OverlayDockPosition in RecordingOverlay.swift) */}
+        <div className="flex items-center justify-between pt-1">
+          <div>
+            <span className="text-xs font-medium text-white/90">HUD Dock Position</span>
+            <p className="text-[11px] text-white/50">
+              Default snap placement for the floating recording companion.
+            </p>
+          </div>
+          <select
+            value={overlayDockPosition}
+            onChange={(e) => {
+              setOverlayDockPosition(e.target.value);
+              localStorage.setItem("overlayDockPosition", e.target.value);
+            }}
+            className="bg-white/[0.06] hover:bg-white/10 border border-white/15 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none transition-all cursor-pointer w-44"
+          >
+            <option value="bottom" className="bg-[#181B20] text-white">Bottom Center (Default)</option>
+            <option value="top" className="bg-[#181B20] text-white">Top Center</option>
+            <option value="freeform" className="bg-[#181B20] text-white">Freeform (Draggable)</option>
+          </select>
+        </div>
       </div>
 
       <div className="border-t border-white/[0.08]" />
