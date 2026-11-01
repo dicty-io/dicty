@@ -1,22 +1,23 @@
 #!/bin/bash
 set -e
 
-# 1. Sync .env from root repository if available, or initialize from .env.example
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$PROJECT_DIR"
+
+echo "=================================================="
+echo "         Dicty Workspace Setup"
+echo "=================================================="
+
+# 1. Copy environment file from root repository or fallback to template
 if [ -n "$SUPERSET_ROOT_PATH" ] && [ -f "$SUPERSET_ROOT_PATH/.env" ] && [ ! -f .env ]; then
-  echo "[*] Copying .env from root workspace..."
-  cp "$SUPERSET_ROOT_PATH/.env" .env
+    echo "[+] Copying .env from root repository ($SUPERSET_ROOT_PATH/.env)..."
+    cp "$SUPERSET_ROOT_PATH/.env" .env
 elif [ ! -f .env ] && [ -f .env.example ]; then
-  echo "[*] Initializing .env from .env.example..."
-  cp .env.example .env
+    echo "[+] Initializing .env from .env.example..."
+    cp .env.example .env
 fi
 
-# 2. Configure executable permissions
-chmod +x scripts/*.sh *.sh 2>/dev/null || true
+# 2. Run standard project setup (venv, deps, whisper, client build)
+make setup
 
-# 3. Setup Python virtual environment & dependencies (cached)
-./scripts/setup_runner_env.sh
-
-# 4. Restore compiled whisper.cpp binaries (cached)
-./scripts/compile_whisper.sh
-
-echo "[+] Dicty workspace setup complete!"
+echo "[+] Dicty workspace setup completed successfully!"
