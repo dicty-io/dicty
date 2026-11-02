@@ -5,26 +5,42 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_DIR"
 
 LOCK_DIR="$PROJECT_DIR/.superset/.setup.lock"
+LOCK_PID_FILE="$LOCK_DIR/pid"
 
 acquire_lock() {
     local timeout=180
     local waited=0
     while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+        local lock_pid=""
+        if [ -f "$LOCK_PID_FILE" ]; then
+            lock_pid="$(cat "$LOCK_PID_FILE" 2>/dev/null || true)"
+        fi
+
+        # If lock was left by a terminated/crashed process, clean and retry acquisition
+        if [ -n "$lock_pid" ] && ! kill -0 "$lock_pid" 2>/dev/null; then
+            echo "[*] Removing stale setup lock from defunct PID $lock_pid..."
+            rm -rf "$LOCK_DIR"
+            continue
+        fi
+
         if [ "$waited" -eq 0 ]; then
-            echo "[*] Another workspace setup is currently running. Waiting for lock..."
+            echo "[*] Another workspace setup is currently running (PID ${lock_pid:-unknown}). Waiting for lock..."
         fi
         sleep 1
         waited=$((waited + 1))
         if [ "$waited" -ge "$timeout" ]; then
-            echo "[!] Setup lock wait timeout reached ($timeout s). Cleaning stale lock..."
-            rm -rf "$LOCK_DIR"
-            break
+            echo "[-] Error: Setup lock timeout reached ($timeout s) while waiting for PID ${lock_pid:-unknown}." >&2
+            echo "[-] Refusing to modify workspace concurrently with active setup." >&2
+            exit 1
         fi
     done
+    echo "$$" > "$LOCK_PID_FILE"
 }
 
 release_lock() {
-    rm -rf "$LOCK_DIR"
+    if [ -f "$LOCK_PID_FILE" ] && [ "$(cat "$LOCK_PID_FILE" 2>/dev/null)" = "$$" ]; then
+        rm -rf "$LOCK_DIR"
+    fi
 }
 
 acquire_lock
