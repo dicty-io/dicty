@@ -98,3 +98,8 @@ coverage.xml
 .build/
 scratch*
 
+# Paradev runtime artifacts
+.superset/*.pid
+.superset/.*.lock
+.dicty_data/
+

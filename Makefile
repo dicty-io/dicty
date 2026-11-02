@@ -8,7 +8,7 @@ GREEN := \033[32m
 CYAN  := \033[36m
 RESET := \033[0m
 
-.PHONY: help setup dev test test-backend test-swift build clean whisper
+.PHONY: help setup setup-backend dev test test-backend test-swift build clean whisper
 
 ## help: Display this help message
 help:
@@ -36,6 +36,21 @@ setup:
 	fi
 	@echo ""
 	@echo -e "$(BOLD)$(GREEN)✨ Dicty environment is fully configured! Run 'make dev' to start.$(RESET)"
+
+## setup-backend: Set up Python virtual environment, dependencies, and Whisper binaries only
+setup-backend:
+	@echo -e "$(BOLD)$(GREEN)[1/3] Configuring executable permissions...$(RESET)"
+	@chmod +x scripts/*.sh *.sh 2>/dev/null || true
+	@echo -e "$(BOLD)$(GREEN)[2/3] Setting up Python virtual environment and dependencies...$(RESET)"
+	@./scripts/setup_runner_env.sh
+	@echo -e "$(BOLD)$(GREEN)[3/3] Compiling / restoring local whisper.cpp binaries...$(RESET)"
+	@./scripts/compile_whisper.sh
+	@if [ ! -f .env ] && [ -f .env.example ]; then \
+		echo ""; \
+		echo "ℹ️  Optional: Copy .env.example to .env to configure cloud LLM API keys."; \
+	fi
+	@echo ""
+	@echo -e "$(BOLD)$(GREEN)✨ Dicty backend environment is configured!$(RESET)"
 
 ## dev: Launch Dicty in development mode with live source engine
 dev:
