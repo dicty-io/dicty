@@ -37,26 +37,47 @@ fi
 # 2. Terminate tracked background dev processes launched by .superset/run.sh
 PID_FILE="$WORKSPACE_DIR/.superset/run.pid"
 if [ -f "$PID_FILE" ]; then
-    RUN_PID="$(cat "$PID_FILE" 2>/dev/null || true)"
-    if [ -n "$RUN_PID" ]; then
-        if kill -0 "$RUN_PID" 2>/dev/null; then
-            # Verify process identity before sending signals to prevent signaling recycled PIDs
+    RUN_PID="$(sed -n '1p' "$PID_FILE" 2>/dev/null || true)"
+    RECORDED_LSTART="$(sed -n '2p' "$PID_FILE" 2>/dev/null || true)"
+    RECORDED_DIR="$(sed -n '3p' "$PID_FILE" 2>/dev/null || true)"
+
+    if [ -n "$RUN_PID" ] && kill -0 "$RUN_PID" 2>/dev/null; then
+        CURRENT_LSTART="$(ps -p "$RUN_PID" -o lstart= 2>/dev/null || true)"
+        IS_VALID_DEV_PROC=0
+
+        # Reliable identity verification across exec using recorded start time and workspace location
+        if [ -n "$RECORDED_LSTART" ] && [ "$CURRENT_LSTART" = "$RECORDED_LSTART" ]; then
+            IS_VALID_DEV_PROC=1
+        else
+            # Fallback: inspect working directory and command line
+            CWD_INFO="$(lsof -a -p "$RUN_PID" -d cwd -Fn 2>/dev/null || true)"
             PROC_CMD="$(ps -p "$RUN_PID" -o args= 2>/dev/null || true)"
-            if echo "$PROC_CMD" | grep -Eq 'dicty_engine|DictyClient|run_client\.sh|run\.sh'; then
-                echo "[*] Terminating dev server process (PID $RUN_PID)..."
-                pkill -P "$RUN_PID" 2>/dev/null || true
-                kill "$RUN_PID" 2>/dev/null || true
-                sleep 1
-                if kill -0 "$RUN_PID" 2>/dev/null; then
-                    pkill -9 -P "$RUN_PID" 2>/dev/null || true
-                    kill -9 "$RUN_PID" 2>/dev/null || true
-                fi
-            else
-                echo "[!] Stale PID $RUN_PID does not match dev process (current: '$PROC_CMD'). Skipping signals."
+            if echo "$CWD_INFO" | grep -Fq "n$WORKSPACE_DIR" || echo "$PROC_CMD" | grep -Eq 'dicty_engine|DictyClient|run_client\.sh'; then
+                IS_VALID_DEV_PROC=1
             fi
         fi
+
+        if [ "$IS_VALID_DEV_PROC" -eq 1 ]; then
+            echo "[*] Terminating dev server process (PID $RUN_PID)..."
+            pkill -P "$RUN_PID" 2>/dev/null || true
+            kill "$RUN_PID" 2>/dev/null || true
+            sleep 1
+            if kill -0 "$RUN_PID" 2>/dev/null; then
+                pkill -9 -P "$RUN_PID" 2>/dev/null || true
+                kill -9 "$RUN_PID" 2>/dev/null || true
+                sleep 1
+            fi
+        else
+            echo "[!] Stale PID $RUN_PID does not match recorded dev process. Skipping signals."
+        fi
     fi
-    rm -f "$PID_FILE"
+
+    # Preserve PID file if the tracked client is still running so subsequent teardowns can find it
+    if kill -0 "$RUN_PID" 2>/dev/null; then
+        echo "[!] Tracked dev process $RUN_PID is still running. Preserving $PID_FILE."
+    else
+        rm -f "$PID_FILE"
+    fi
 fi
 
 # 3. Clean up setup lock safely without disrupting active setups

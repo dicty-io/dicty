@@ -16,10 +16,24 @@ acquire_lock() {
             lock_pid="$(cat "$LOCK_PID_FILE" 2>/dev/null || true)"
         fi
 
-        # If lock was left by a terminated/crashed process, clean and retry acquisition
+        # If lock was left by a terminated/crashed process, attempt exclusive atomic recovery
         if [ -n "$lock_pid" ] && ! kill -0 "$lock_pid" 2>/dev/null; then
-            echo "[*] Removing stale setup lock from defunct PID $lock_pid..."
-            rm -rf "$LOCK_DIR"
+            local recovery_dir="$LOCK_DIR.stale.$$"
+            if mv "$LOCK_DIR" "$recovery_dir" 2>/dev/null; then
+                # Under exclusive recovery guard, re-verify PID before removing
+                local stale_pid=""
+                if [ -f "$recovery_dir/pid" ]; then
+                    stale_pid="$(cat "$recovery_dir/pid" 2>/dev/null || true)"
+                fi
+                if [ -n "$stale_pid" ] && kill -0 "$stale_pid" 2>/dev/null; then
+                    # Defunct check raced with reuse; restore lock
+                    mv "$recovery_dir" "$LOCK_DIR" 2>/dev/null || rm -rf "$recovery_dir"
+                else
+                    echo "[*] Removed stale setup lock from defunct PID ${stale_pid:-$lock_pid}."
+                    rm -rf "$recovery_dir"
+                fi
+            fi
+            # Always retry normal mkdir acquisition after recovery attempt
             continue
         fi
 
