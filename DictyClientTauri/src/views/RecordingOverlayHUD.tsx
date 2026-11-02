@@ -44,6 +44,7 @@ export const RecordingOverlayHUD: React.FC = () => {
   const [isHovered, setIsHovered] = useState(false);
   const [volumePulse, setVolumePulse] = useState(0.6);
   const [isMicMuted, setIsMicMuted] = useState(false);
+  const [isTogglingMute, setIsTogglingMute] = useState(false);
 
   const isMeetingMode = activeMode === "meeting" || activeMode === "focused_meeting";
 
@@ -242,10 +243,12 @@ export const RecordingOverlayHUD: React.FC = () => {
           if (!wasRecordingRef.current) {
             wasRecordingRef.current = true;
           }
+          setIsMicMuted(false);
           setElapsed(0);
           setProfiles(getStoredProfiles());
         } else if (!payload.is_recording && wasRecordingRef.current) {
           wasRecordingRef.current = false;
+          setIsMicMuted(false);
         }
       }
       if (typeof payload.is_paused === "boolean") {
@@ -269,6 +272,7 @@ export const RecordingOverlayHUD: React.FC = () => {
         setIsProcessing(false);
         setPartialText("");
         setElapsed(0);
+        setIsMicMuted(false);
       }
     }).then((fn) => {
       unlisten = fn;
@@ -385,12 +389,20 @@ export const RecordingOverlayHUD: React.FC = () => {
   const handleToggleMicMute = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
     e?.preventDefault();
-    const nextMuted = !isMicMuted;
+    if (isTogglingMute) return;
+    const prevMuted = isMicMuted;
+    const nextMuted = !prevMuted;
+    setIsTogglingMute(true);
     setIsMicMuted(nextMuted);
     try {
       await engineApi.setMicMuted(nextMuted);
-    } catch (err) {
+    } catch (err: any) {
       console.warn("Failed to toggle mic mute:", err);
+      setIsMicMuted(prevMuted);
+      setBackendError(err?.message || "Failed to toggle microphone mute");
+      setTimeout(() => setBackendError(null), 4000);
+    } finally {
+      setIsTogglingMute(false);
     }
   };
 
@@ -649,6 +661,7 @@ export const RecordingOverlayHUD: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleToggleMicMute}
+                  disabled={isTogglingMute || isProcessing}
                   title={isMicMuted ? "Unmute Microphone" : "Mute Microphone (Record system audio only)"}
                   className={`w-6 h-6 rounded-full flex items-center justify-center transition-all ${
                     isMicMuted
@@ -926,7 +939,7 @@ export const RecordingOverlayHUD: React.FC = () => {
               <button
                 type="button"
                 onClick={handleToggleMicMute}
-                disabled={isProcessing}
+                disabled={isProcessing || isTogglingMute}
                 title={isMicMuted ? "Unmute Microphone" : "Mute Microphone (Record system audio only)"}
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all whitespace-nowrap ${
                   isMicMuted

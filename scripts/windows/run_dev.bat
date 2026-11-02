@@ -1,7 +1,7 @@
 @echo off
-setlocal enabledelayedexpansion
-
+setlocal
 for %%I in ("%~dp0..\..") do set "REPO_ROOT=%%~fI"
+setlocal enabledelayedexpansion
 
 echo ===================================================
 echo            Starting Dicty in Dev Mode

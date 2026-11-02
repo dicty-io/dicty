@@ -1,7 +1,7 @@
 @echo off
-setlocal enabledelayedexpansion
-
+setlocal
 for %%I in ("%~dp0..\..") do set "REPO_ROOT=%%~fI"
+setlocal enabledelayedexpansion
 
 echo =======================================================
 echo        Dicty Windows Production Installer Packager
@@ -40,6 +40,16 @@ echo [*] Staging standalone engine into Tauri resources...
 if not exist "%REPO_ROOT%\DictyClientTauri\src-tauri\resources" mkdir "%REPO_ROOT%\DictyClientTauri\src-tauri\resources"
 if exist "%REPO_ROOT%\DictyClientTauri\src-tauri\resources\dicty_engine" rmdir /s /q "%REPO_ROOT%\DictyClientTauri\src-tauri\resources\dicty_engine"
 xcopy /E /I /Y "%REPO_ROOT%\dist\dicty_engine" "%REPO_ROOT%\DictyClientTauri\src-tauri\resources\dicty_engine"
+if errorlevel 1 (
+    echo [-] Engine staging failed!
+    cd /d "%REPO_ROOT%"
+    exit /b 1
+)
+if not exist "%REPO_ROOT%\DictyClientTauri\src-tauri\resources\dicty_engine\dicty_engine.exe" (
+    echo [-] Engine staging failed: dicty_engine.exe was not staged!
+    cd /d "%REPO_ROOT%"
+    exit /b 1
+)
 
 :: 4. Build frontend web bundle
 echo [*] Step 2/3: Building frontend web assets...

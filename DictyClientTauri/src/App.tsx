@@ -10,6 +10,7 @@ import { getStoredProfiles } from "./types/profiles";
 import { ModelsView } from "./views/ModelsView";
 import { ProjectsView } from "./views/ProjectsView";
 import { WordsView } from "./views/WordsView";
+import { PromptsSettingsView } from "./views/PromptsSettingsView";
 import { TranscribeFileView } from "./views/TranscribeFileView";
 import { HistoryView } from "./views/HistoryView";
 import { SettingsHubView } from "./views/SettingsHubView";
@@ -51,7 +52,7 @@ const VALID_TABS: ActiveTab[] = [
 /// Tabs removed or merged keep working: a saved or deep-linked old value lands
 /// on the page that holds them now.
 function normalizeLegacyTab(tab: ActiveTab | null): ActiveTab | null {
-  if (tab === "vocabulary" || tab === "prompts") return "words";
+  if (tab === "vocabulary") return "words";
   return tab;
 }
 
@@ -468,9 +469,10 @@ export default function App() {
         {activeTab === "home" && <HomeView />}
         {activeTab === "modes" && <ModesView onNavigateTab={handleTabChange} />}
         {activeTab === "models" && <ModelsView />}
-        {(activeTab === "words" || activeTab === "vocabulary" || activeTab === "prompts") && (
+        {(activeTab === "words" || activeTab === "vocabulary") && (
           <WordsView />
         )}
+        {activeTab === "prompts" && <PromptsSettingsView />}
         {activeTab === "history" && <HistoryView />}
         {activeTab === "insights" && <InsightsView />}
         {activeTab === "transcribe" && <TranscribeFileView />}

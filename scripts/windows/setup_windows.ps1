@@ -1,7 +1,7 @@
 # Dicty Windows Environment Setup Script (PowerShell)
 $ErrorActionPreference = "Stop"
 
-$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..")).Path
 $venvDir = Join-Path $RepoRoot ".venv"
 $venvPython = Join-Path $venvDir "Scripts\python.exe"
 $venvPip = Join-Path $venvDir "Scripts\pip.exe"
@@ -45,7 +45,7 @@ $args = if ($parts.Length -gt 1) { $parts[1..($parts.Length - 1)] + @("--version
 
 # 2. Setup .venv
 $recreateVenv = $false
-if (Test-Path $venvPython) {
+if (Test-Path -LiteralPath $venvPython) {
     try {
         & $venvPython -c "import sys; sys.exit(0 if (3, 10) <= sys.version_info[:2] < (3, 14) else 1)"
         if ($LASTEXITCODE -ne 0) { $recreateVenv = $true }
@@ -57,9 +57,9 @@ if (Test-Path $venvPython) {
 }
 
 if ($recreateVenv) {
-    if (Test-Path $venvDir) {
+    if (Test-Path -LiteralPath $venvDir) {
         Write-Host "[!] Existing .venv has an incompatible Python version. Recreating with $pythonCmd..." -ForegroundColor Yellow
-        Remove-Item -Recurse -Force $venvDir
+        Remove-Item -Recurse -Force -LiteralPath $venvDir
     }
     Write-Host "[*] Creating virtual environment at $venvDir ..." -ForegroundColor Yellow
     $args = if ($parts.Length -gt 1) { $parts[1..($parts.Length - 1)] + @("-m", "venv", $venvDir) } else { @("-m", "venv", $venvDir) }
@@ -79,17 +79,17 @@ Write-Host "[*] Installing dependencies from $reqFile..." -ForegroundColor Yello
 Write-Host "[+] Python dependencies installed." -ForegroundColor Green
 
 # 5. Node.js & npm
-if (Test-Path "C:\Program Files\nodejs") {
+if (Test-Path -LiteralPath "C:\Program Files\nodejs") {
     $env:PATH = "C:\Program Files\nodejs;" + $env:PATH
 }
-if (Test-Path "$env:USERPROFILE\.cargo\bin") {
+if (Test-Path -LiteralPath "$env:USERPROFILE\.cargo\bin") {
     $env:PATH = "$env:USERPROFILE\.cargo\bin;" + $env:PATH
 }
 
 if (Get-Command node -ErrorAction SilentlyContinue) {
     Write-Host "[*] Node.js version: $(node -v)" -ForegroundColor Green
     Write-Host "[*] Installing frontend dependencies in $tauriDir..." -ForegroundColor Yellow
-    Push-Location $tauriDir
+    Push-Location -LiteralPath $tauriDir
     npm install
     Pop-Location
     Write-Host "[+] Frontend dependencies installed." -ForegroundColor Green

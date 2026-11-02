@@ -92,16 +92,18 @@ export const UpdatesView: React.FC = () => {
     }
 
     let checkSucceeded = false;
+    let engineInfo: UpdateInfo | null = null;
 
     // 1. Try querying local engine
     try {
       const res = await engineApi.checkForUpdates(versionToCompare, targetRepo, targetToken);
       if (res && res.latest_version) {
         const hasUpdate = Boolean(res.has_update || semverGt(res.latest_version, versionToCompare));
-        setUpdateInfo({
+        engineInfo = {
           ...res,
           has_update: hasUpdate,
-        });
+        };
+        setUpdateInfo(engineInfo);
         if (res.error && !res.latest_version) {
           setErrorMsg(res.error);
         } else {
@@ -114,7 +116,7 @@ export const UpdatesView: React.FC = () => {
     }
 
     // 2. Fallback to direct GitHub API fetch if local engine was offline / starting / missing download_url
-    if (!checkSucceeded || (updateInfo?.has_update && !updateInfo?.download_url)) {
+    if (!checkSucceeded || (engineInfo?.has_update && !engineInfo?.download_url)) {
       const isWindows = navigator.userAgent.includes("Windows") || navigator.platform.includes("Win");
       const isMac = navigator.userAgent.includes("Mac") || navigator.platform.includes("Mac");
 
@@ -160,7 +162,7 @@ export const UpdatesView: React.FC = () => {
       }
 
       for (const url of reposToTry) {
-        if (checkSucceeded && updateInfo?.download_url) break;
+        if (checkSucceeded && engineInfo?.download_url) break;
         try {
           const ghRes = await fetch(url, { headers: ghHeaders });
           if (!ghRes.ok) continue;
@@ -194,7 +196,7 @@ export const UpdatesView: React.FC = () => {
             const cleanVersion = latestTag.replace(/^[vV]/, "");
             const hasUpdate = semverGt(cleanVersion, versionToCompare);
 
-            setUpdateInfo({
+            engineInfo = {
               has_update: hasUpdate,
               latest_version: cleanVersion || versionToCompare,
               current_version: versionToCompare,
@@ -206,7 +208,8 @@ export const UpdatesView: React.FC = () => {
               published_at: matchingRelease.published_at,
               html_url: matchingRelease.html_url || `https://github.com/${targetRepo}/releases`,
               error: null,
-            });
+            };
+            setUpdateInfo(engineInfo);
             setErrorMsg(null);
             checkSucceeded = true;
             break;

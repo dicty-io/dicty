@@ -2,10 +2,13 @@
 REM scripts\windows\build_win.bat
 REM Packages the Dicty backend into a standalone Windows executable directory using PyInstaller.
 
-setlocal enabledelayedexpansion
-
+setlocal
 for %%I in ("%~dp0..\..") do set "REPO_ROOT=%%~fI"
-cd /d "%REPO_ROOT%"
+pushd "%REPO_ROOT%" || (
+    echo [-] Failed to enter repository root directory: "%REPO_ROOT%"
+    exit /b 1
+)
+setlocal enabledelayedexpansion
 
 echo [*] Installing PyInstaller in virtual environment...
 .venv\Scripts\pip install pyinstaller
@@ -45,3 +48,4 @@ if not exist DictyClientTauri\src-tauri\resources\dicty_engine\dicty_engine.exe 
 )
 
 echo [+] Build complete! Standalone Windows engine is located at: dist\dicty_engine\dicty_engine.exe
+popd

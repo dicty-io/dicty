@@ -1,7 +1,7 @@
 @echo off
-setlocal enabledelayedexpansion
-
+setlocal
 for %%I in ("%~dp0..\..") do set "REPO_ROOT=%%~fI"
+setlocal enabledelayedexpansion
 set "VENV_DIR=%REPO_ROOT%\.venv"
 set "VENV_PYTHON=%VENV_DIR%\Scripts\python.exe"
 set "VENV_PIP=%VENV_DIR%\Scripts\pip.exe"
@@ -55,7 +55,7 @@ if not exist "%VENV_PYTHON%" goto :CREATE_VENV
 
 "%VENV_PYTHON%" -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) and sys.version_info < (3, 14) else 1)" >nul 2>&1
 if %ERRORLEVEL% EQU 0 (
-    echo [*] Compatible virtual environment found at %VENV_DIR%.
+    echo [*] Compatible virtual environment found at "%VENV_DIR%".
     goto :VENV_READY
 )
 
@@ -63,7 +63,7 @@ echo [!] Existing .venv is incompatible with required ML packages. Recreating wi
 rmdir /s /q "%VENV_DIR%"
 
 :CREATE_VENV
-echo [*] Creating virtual environment at %VENV_DIR% ...
+echo [*] Creating virtual environment at "%VENV_DIR%" ...
 %PYTHON_EXE% -m venv "%VENV_DIR%"
 if %ERRORLEVEL% NEQ 0 (
     echo [-] Failed to create virtual environment!
@@ -78,7 +78,7 @@ echo [*] Upgrading pip, setuptools, and wheel...
 "%VENV_PYTHON%" -m pip install --upgrade pip setuptools wheel --quiet
 
 :: 4. Install backend dependencies
-echo [*] Installing Windows backend dependencies from %REQ_FILE%...
+echo [*] Installing Windows backend dependencies from "%REQ_FILE%"...
 "%VENV_PIP%" install -r "%REQ_FILE%"
 if %ERRORLEVEL% NEQ 0 (
     echo [-] Failed to install Python dependencies! Please check error output above.
@@ -98,7 +98,7 @@ if %ERRORLEVEL% NEQ 0 (
     echo     To run or develop the frontend UI, please install Node.js from https://nodejs.org/
 ) else (
     node --version
-    echo [*] Installing frontend dependencies in %TAURI_DIR%...
+    echo [*] Installing frontend dependencies in "%TAURI_DIR%"...
     cd /d "%TAURI_DIR%"
     call npm install
     if %ERRORLEVEL% NEQ 0 (
