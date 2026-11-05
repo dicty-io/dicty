@@ -48,7 +48,7 @@ async def test_routing():
             res_groq = await ts.transcribe_remote(
                 audio_path=dummy_wav,
                 model_name="groq/whisper-large-v3-turbo",
-                openrouter_key="sk-or-v1-my-custom-user-token",
+                override_key="gsk_test_groq_key_12345",
                 provider="openrouter"
             )
             call_args, call_kwargs = mock_post.call_args
@@ -73,6 +73,21 @@ async def test_routing():
             assert "dicty-backend" in url or "api.dicty.io" in url
             assert headers["Authorization"] == "Bearer dicty-jwt-sample-token"
             print("[PASS] Dicty Cloud routing verified!")
+
+            # 4. Test Deepgram Nova-3 Dicty Cloud routing
+            res_nova = await ts.transcribe_remote(
+                audio_path=dummy_wav,
+                model_name="deepgram/nova-3",
+                override_key="dicty-jwt-sample-token",
+                provider="dicty_cloud"
+            )
+            call_args, call_kwargs = mock_post.call_args
+            url = call_args[0]
+            headers = call_kwargs["headers"]
+            print(f"Verified Nova-3 URL: {url}")
+            assert "dicty-backend" in url or "api.dicty.io" in url
+            assert headers["Authorization"] == "Bearer dicty-jwt-sample-token"
+            print("[PASS] Deepgram Nova-3 Dicty Cloud routing verified!")
             
         finally:
             if os.path.exists(dummy_wav):

@@ -1108,10 +1108,11 @@ class TranscribeService:
                     print(f"[-] Local python-whisper failed: {python_err}")
 
             if not transcription_done:
-                # 4. Direct fast remote transcription fallback (OpenAI / OpenRouter)
+                # 4. Direct fast remote transcription fallback (Deepgram Nova-3 when Dicty Cloud / Deepgram available, else OpenAI / OpenRouter)
                 try:
-                    print(f"[*] Routing directly to Cloud STT Whisper transcription (Language: {language})...")
-                    raw_text = await self.transcribe_remote(audio_path, "whisper-1", prompt_str, language, override_key=openai_api_key, openrouter_key=openrouter_key, translate_to_english=translate_to_english, provider=provider)
+                    target_fallback_model = "deepgram/nova-3" if (provider == "dicty_cloud" or get_stt_key("deepgram")) else "whisper-1"
+                    print(f"[*] Routing directly to Cloud STT transcription ({target_fallback_model}, Language: {language})...")
+                    raw_text = await self.transcribe_remote(audio_path, target_fallback_model, prompt_str, language, override_key=openai_api_key, openrouter_key=openrouter_key, translate_to_english=translate_to_english, provider=provider)
                     transcription_done = True
                 except Exception as remote_err:
                     print(f"[-] Remote transcription failed: {remote_err}")

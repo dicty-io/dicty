@@ -235,8 +235,17 @@ struct AILocationStepView: View {
                     .font(.system(size: 12))
                     .foregroundColor(.gray)
             } else if let progress {
-                ProgressView(value: progress)
-                    .frame(width: 90)
+                if progress < 0 {
+                    Button("Retry") {
+                        engineClient.downloadModel(id: model.id)
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.orange)
+                } else {
+                    ProgressView(value: progress, total: 100.0)
+                        .frame(width: 90)
+                }
             } else {
                 Button("Download") {
                     engineClient.downloadModel(id: model.id)

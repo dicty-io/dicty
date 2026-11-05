@@ -77,6 +77,11 @@ class EngineClient: ObservableObject {
         if provider == "dicty_cloud" && !hasCloudAccess {
             return "openrouter"
         }
+        let isDeepgramActive = activeModel.contains("deepgram")
+        let hasDeepgramKey = !(SecretsManager.readSecret(forKey: "deepgramApiKey") ?? "").isEmpty
+        if isDeepgramActive && !hasDeepgramKey && hasCloudAccess {
+            return "dicty_cloud"
+        }
         if provider == "openrouter" && hasCloudAccess && !hasCustomAPIKey {
             return "dicty_cloud"
         }
