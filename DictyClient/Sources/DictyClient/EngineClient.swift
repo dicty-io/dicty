@@ -2961,7 +2961,15 @@ class EngineClient: ObservableObject {
                     print("[EngineClient] Native mic recording FAILED: \(error)")
                 }
                 // Start Python microphone recording first so the input stream & Bluetooth audio route are settled
-                let (startData, _) = try await EngineEndpoint.shared.session.data(for: startReq)
+                let (startData, startResponse) = try await EngineEndpoint.shared.session.data(for: startReq)
+                if let httpResp = startResponse as? HTTPURLResponse, httpResp.statusCode >= 400 {
+                    var detailMsg = "Backend rejected recording start (HTTP \(httpResp.statusCode))"
+                    if let json = try? JSONSerialization.jsonObject(with: startData) as? [String: Any],
+                       let detail = json["detail"] as? String {
+                        detailMsg = detail
+                    }
+                    throw NSError(domain: "DictyEngine", code: httpResp.statusCode, userInfo: [NSLocalizedDescriptionKey: detailMsg])
+                }
                 if let json = try? JSONSerialization.jsonObject(with: startData) as? [String: Any],
                    let resMode = json["resolved_mode"] as? String {
                     await MainActor.run {

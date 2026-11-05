@@ -101,6 +101,17 @@ async def start_recording(device_id: int = None, language: str = "auto", is_mute
             detail=f"Active model '{active_model_id}' is not installed. Please download it in Models Library before recording."
         )
 
+    models = mm.get_available_models()
+    active_model_dict = next((m for m in models if m["id"] == active_model_id), None)
+    is_cloud_model = (active_model_dict and active_model_dict.get("is_cloud", False)) or ("/" in active_model_id)
+    if not is_cloud_model:
+        ts = TranscribeService()
+        if not ts.has_local_engine():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Local speech engine (whisper-cli) is not compiled for offline model '{active_model_id}'. Please run './scripts/compile_whisper.sh' in your terminal or select a Cloud model in Models Library."
+            )
+
     play_start_chime()
     try:
         from services.stores import vocabulary_manager

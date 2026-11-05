@@ -399,8 +399,10 @@ class TranscribeService:
             "bin/whisper-cli.exe",
             "bin/whisper.cpp/main.exe",
             "bin/whisper.cpp/build/bin/whisper-cli",
+            "whisper.cpp/build/bin/whisper-cli",
             "bin/whisper-cli",
-            "bin/whisper.cpp/main"
+            "bin/whisper.cpp/main",
+            os.path.expanduser("~/.dicty_cache/whisper/whisper-cli")
         ]
         
         for p in local_bin_paths:
@@ -409,8 +411,22 @@ class TranscribeService:
                 return self.whisper_cpp_path
                 
         # 3. If missing, warn rather than crash engine startup
-        print("[!] Warning: whisper-cli binary not found. Run ./compile_whisper.sh to compile local whisper.cpp.")
+        print("[!] Warning: whisper-cli binary not found. Run ./scripts/compile_whisper.sh to compile local whisper.cpp.")
         return self.whisper_cpp_path
+
+    def has_local_engine(self) -> bool:
+        """Returns True if any local speech engine (whisper.cpp, faster-whisper, or whisper) is available."""
+        if self.whisper_cpp_path and os.path.exists(self.whisper_cpp_path):
+            return True
+        cpp = self._ensure_whisper_cpp_binary()
+        if cpp and os.path.exists(cpp):
+            return True
+        import importlib.util
+        if importlib.util.find_spec("faster_whisper") is not None:
+            return True
+        if importlib.util.find_spec("whisper") is not None:
+            return True
+        return False
 
 
     def _update_env_cpp_path(self, cpp_path: str):
@@ -1108,14 +1124,29 @@ class TranscribeService:
                     print(f"[-] Local python-whisper failed: {python_err}")
 
             if not transcription_done:
-                # 4. Direct fast remote transcription fallback (Deepgram Nova-3 when Dicty Cloud / Deepgram available, else OpenAI / OpenRouter)
-                try:
-                    target_fallback_model = "deepgram/nova-3" if (provider == "dicty_cloud" or get_stt_key("deepgram")) else "whisper-1"
-                    print(f"[*] Routing directly to Cloud STT transcription ({target_fallback_model}, Language: {language})...")
-                    raw_text = await self.transcribe_remote(audio_path, target_fallback_model, prompt_str, language, override_key=openai_api_key, openrouter_key=openrouter_key, translate_to_english=translate_to_english, provider=provider)
-                    transcription_done = True
-                except Exception as remote_err:
-                    print(f"[-] Remote transcription failed: {remote_err}")
+                has_any_local = can_cpp or can_faster or can_python
+                if not has_any_local and not (active_model_dict and active_model_dict.get("is_cloud", False)):
+                    print("[-] Local transcription failed: No local Whisper speech engine found (whisper-cli is not compiled at 'bin/whisper.cpp/build/bin/whisper-cli'). Run './scripts/compile_whisper.sh' to compile native whisper.cpp.")
+
+                has_cloud_auth = bool(
+                    provider == "dicty_cloud"
+                    or get_stt_key("deepgram")
+                    or openai_api_key
+                    or openrouter_key
+                    or get_stt_key("openai")
+                )
+                if has_cloud_auth:
+                    # 4. Direct fast remote transcription fallback (Deepgram Nova-3 when Dicty Cloud / Deepgram available, else OpenAI / OpenRouter)
+                    try:
+                        target_fallback_model = "deepgram/nova-3" if (provider == "dicty_cloud" or get_stt_key("deepgram")) else "whisper-1"
+                        print(f"[*] Routing directly to Cloud STT transcription ({target_fallback_model}, Language: {language})...")
+                        raw_text = await self.transcribe_remote(audio_path, target_fallback_model, prompt_str, language, override_key=openai_api_key, openrouter_key=openrouter_key, translate_to_english=translate_to_english, provider=provider)
+                        transcription_done = True
+                    except Exception as remote_err:
+                        print(f"[-] Remote transcription fallback failed: {remote_err}")
+                else:
+                    if not has_any_local:
+                        print("[-] Cannot perform Cloud STT fallback: No Cloud STT API key or Dicty Cloud connection configured.")
 
         if not raw_text:
             return ""
