@@ -410,9 +410,60 @@ class TranscribeService:
                 self.whisper_cpp_path = os.path.abspath(p)
                 return self.whisper_cpp_path
                 
-        # 3. If missing, warn rather than crash engine startup
+        # 3. If missing from local paths, attempt auto-downloading official pre-compiled binaries
+        auto_downloaded = self._download_whisper_cli()
+        if auto_downloaded and os.path.exists(auto_downloaded):
+            self.whisper_cpp_path = auto_downloaded
+            return self.whisper_cpp_path
+
+        # 4. If missing and cannot download, warn rather than crash engine startup
         print("[!] Warning: whisper-cli binary not found. Run ./scripts/compile_whisper.sh to compile local whisper.cpp.")
         return self.whisper_cpp_path
+
+    def _download_whisper_cli(self):
+        """
+        Auto-downloads pre-compiled whisper.cpp binaries from official upstream releases
+        into ~/.dicty_cache/whisper/ if missing (e.g. running from source or fresh clone).
+        """
+        import platform, zipfile, io, httpx
+        system = platform.system().lower()
+        machine = platform.machine().lower()
+        
+        target_dir = os.path.expanduser("~/.dicty_cache/whisper")
+        os.makedirs(target_dir, exist_ok=True)
+        target_cli = os.path.join(target_dir, "whisper-cli.exe" if system == "windows" else "whisper-cli")
+        if os.path.exists(target_cli):
+            return target_cli
+
+        # Upstream whisper.cpp release assets for macOS (arm64 Metal, x86_64) and Windows
+        version = "v1.7.4"
+        if system == "darwin":
+            asset_name = "whisper-bin-arm64.zip" if machine in ("arm64", "aarch64") else "whisper-bin-x64.zip"
+        elif system == "windows":
+            asset_name = "whisper-bin-x64.zip"
+        else:
+            return None
+
+        url = f"https://github.com/ggerganov/whisper.cpp/releases/download/{version}/{asset_name}"
+        try:
+            print(f"[*] whisper-cli not found locally. Auto-downloading pre-compiled binary from {url}...")
+            timeout = httpx.Timeout(connect=15.0, read=90.0, write=30.0, pool=15.0)
+            resp = httpx.get(url, follow_redirects=True, timeout=timeout)
+            resp.raise_for_status()
+            with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+                for member in zf.namelist():
+                    basename = os.path.basename(member)
+                    if basename in ("whisper-cli", "whisper-cli.exe", "whisper-server", "whisper-server.exe", "main", "main.exe"):
+                        extracted_path = os.path.join(target_dir, basename)
+                        with open(extracted_path, "wb") as f:
+                            f.write(zf.read(member))
+                        os.chmod(extracted_path, 0o755)
+            if os.path.exists(target_cli):
+                print(f"[+] Successfully auto-downloaded whisper binaries to {target_dir}")
+                return target_cli
+        except Exception as e:
+            print(f"[!] Could not auto-download pre-compiled whisper binary: {e}")
+        return None
 
     def has_local_engine(self) -> bool:
         """Returns True if any local speech engine (whisper.cpp, faster-whisper, or whisper) is available."""
