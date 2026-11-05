@@ -331,6 +331,34 @@ struct ModelsLibraryView: View {
         }
     }
     
+    private var cloudModelAlert: Alert {
+        Alert(
+            title: Text(cloudModelAlertTitle),
+            message: Text(cloudModelAlertMessage),
+            primaryButton: .default(Text(cloudModelNeedsSignIn ? "Sign In" : "Manage Account")) {
+                WindowManager.openSettingsWindow(engineClient: engineClient, tabIndex: 11)
+            },
+            secondaryButton: .default(Text("Add API Key")) {
+                WindowManager.openSettingsWindow(engineClient: engineClient, tabIndex: 6)
+            }
+        )
+    }
+
+    private func onAppearSetup() {
+        engineClient.fetchModels()
+        if !didInitChooseModels {
+            chooseModelsExpanded = hasCustomizedModel
+            didInitChooseModels = true
+        }
+        if !canUseDictyCloud && llmProvider == "dicty_cloud" {
+            llmProvider = "openrouter"
+        }
+        let needsTranslationModel = selectedTranslationModel.isEmpty || selectedTranslationModel == "none"
+        if translationMethod == "cloud" && needsTranslationModel && !llmModel.isEmpty {
+            selectedTranslationModel = llmModel
+        }
+    }
+
     private func activateCloudVoiceModel(_ model: DictyModel) {
         let id = model.id.lowercased()
         let directKey: String
@@ -984,23 +1012,16 @@ struct ModelsLibraryView: View {
             }
         }
         .alert(isPresented: $showCloudModelAlert) {
-            Alert(
-                title: Text(cloudModelAlertTitle),
-                message: Text(cloudModelAlertMessage),
-                primaryButton: .default(Text(cloudModelNeedsSignIn ? "Sign In" : "Manage Account")) {
-                    WindowManager.openSettingsWindow(engineClient: engineClient, tabIndex: 11)
-                },
-                secondaryButton: .default(Text("Add API Key")) {
-                    WindowManager.openSettingsWindow(engineClient: engineClient, tabIndex: 6)
-                }
-            )
+            cloudModelAlert
         }
         .onChange(of: llmModel) { _, newModel in
             if !newModel.isEmpty && (newModel.contains("/") || llmProvider != "local") {
                 lastCloudTextModel = newModel
             }
             ProfileManager.shared.updateActiveProfileModels(llmModel: newModel)
-            if translationMethod == "cloud" && (selectedTranslationModel.isEmpty || !cloudTextModels.contains(where: { $0.id == selectedTranslationModel })) {
+            let isCloud = translationMethod == "cloud"
+            let missing = selectedTranslationModel.isEmpty || !cloudTextModels.contains(where: { $0.id == selectedTranslationModel })
+            if isCloud && missing {
                 selectedTranslationModel = newModel
             }
         }
@@ -1009,7 +1030,8 @@ struct ModelsLibraryView: View {
         }
         .onChange(of: translationMethod) { _, newMethod in
             ProfileManager.shared.updateActiveProfileModels(translationMethod: newMethod)
-            if newMethod == "cloud" && (selectedTranslationModel.isEmpty || selectedTranslationModel == "none") && !llmModel.isEmpty {
+            let needsModel = selectedTranslationModel.isEmpty || selectedTranslationModel == "none"
+            if newMethod == "cloud" && needsModel && !llmModel.isEmpty {
                 selectedTranslationModel = llmModel
             }
         }
@@ -1033,17 +1055,7 @@ struct ModelsLibraryView: View {
             ProfileManager.shared.updateActiveProfileModels(enableAutoCompletion: newAuto)
         }
         .onAppear {
-            engineClient.fetchModels()
-            if !didInitChooseModels {
-                chooseModelsExpanded = hasCustomizedModel
-                didInitChooseModels = true
-            }
-            if !canUseDictyCloud && llmProvider == "dicty_cloud" {
-                llmProvider = "openrouter"
-            }
-            if translationMethod == "cloud" && (selectedTranslationModel.isEmpty || selectedTranslationModel == "none") && !llmModel.isEmpty {
-                selectedTranslationModel = llmModel
-            }
+            onAppearSetup()
         }
         .task {
             await modesStore.refresh()
