@@ -240,6 +240,7 @@ async def process_transcription(
     correction_location: str = None,
     skip_cloud: bool = False,
     speech_route: str = None,
+    model_id: str = None,
 ):
     _metrics_t0 = time.perf_counter()
     effective_speech_route = speech_route or llm_provider
@@ -271,11 +272,11 @@ async def process_transcription(
     # Get active model intelligently, with safety fallback if file is missing
     from model_manager import ModelManager, MODELS_DIR
     mm = ModelManager()
-    active_model_id = mm.get_active_model()
-    model_file = os.path.abspath(os.path.join(MODELS_DIR, f"ggml-{active_model_id}.bin"))
+    active_model_id = (model_id or "").strip() or mm.get_active_model()
+    model_file = mm.get_model_file_path(active_model_id) or os.path.abspath(os.path.join(MODELS_DIR, f"ggml-{active_model_id}.bin"))
     
     active_model_info = next((m for m in mm.get_available_models() if m["id"] == active_model_id), None)
-    is_cloud_model = (active_model_info and active_model_info.get("is_cloud", False)) or ("/" in active_model_id)
+    is_cloud_model = (active_model_info and active_model_info.get("is_cloud", False)) or ("/" in active_model_id) or (active_model_id in ["whisper-1", "deepgram/nova-3"])
     
     can_faster = False
     try:
@@ -284,7 +285,7 @@ async def process_transcription(
     except ImportError:
         pass
 
-    if not is_cloud_model and not can_faster and not os.path.exists(model_file):
+    if not model_id and not is_cloud_model and not can_faster and not os.path.exists(model_file):
         downloaded = mm.get_downloaded_models()
         if downloaded:
             # If non-English language requested, prefer multilingual models (not ending in .en)
@@ -333,7 +334,8 @@ async def process_transcription(
                 language=language,
                 translate_to_english=whisper_translate,
                 enable_auto_completion=enable_auto_completion,
-                provider=effective_speech_route
+                provider=effective_speech_route,
+                model_name=active_model_id
             ))
         else:
             async def _empty_segs(): return []
@@ -347,7 +349,8 @@ async def process_transcription(
             language=language,
             translate_to_english=whisper_translate,
             enable_auto_completion=enable_auto_completion,
-            provider=effective_speech_route
+            provider=effective_speech_route,
+            model_name=active_model_id
         ))
 
         try:
@@ -433,7 +436,8 @@ async def process_transcription(
                 enable_auto_completion=enable_auto_completion,
                 with_timestamps=False,
                 provider=effective_speech_route,
-                skip_cloud=skip_cloud
+                skip_cloud=skip_cloud,
+                model_name=active_model_id
             )
             if not raw_text or raw_text.strip() == "":
                 return {"status": "error", "message": "Transcription failed or empty"}
@@ -1206,7 +1210,9 @@ async def process_transcription(
                 "speaking_wpm": speaking_wpm,
                 "engine_wpm": engine_wpm,
                 "reconcile_result": reconcile_data,
-                "reprocessed_at": timestamp
+                "reprocessed_at": timestamp,
+                "model_id": active_model_id,
+                "model_name": (active_model_info or {}).get("name") or active_model_id,
             }
             if is_separated_meeting:
                 updates["speaker_separation"] = speaker_separation
@@ -1265,6 +1271,8 @@ async def process_transcription(
                 "app_name": target_app_name or "",
                 "mode_id": mode_id or mode,
                 "mode_reason": mode_reason or "default",
+                "model_id": active_model_id,
+                "model_name": (active_model_info or {}).get("name") or active_model_id,
             }
             if summary_text:
                 record_payload["summary"] = summary_text

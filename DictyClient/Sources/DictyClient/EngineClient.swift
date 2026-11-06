@@ -2292,7 +2292,12 @@ class EngineClient: ObservableObject {
         mode: String,
         formatStyle: String,
         customPrompt: String? = nil,
-        retranscribeAudio: Bool = false
+        retranscribeAudio: Bool = false,
+        modelId: String? = nil,
+        speechRoute: String? = nil,
+        language: String? = nil,
+        translateToEnglish: Bool = false,
+        targetLanguage: String? = nil
     ) async -> Bool {
         reprocessingIds.insert(id)
         reprocessErrors.removeValue(forKey: id)
@@ -2315,11 +2320,16 @@ class EngineClient: ObservableObject {
             }
             let openaiApiKey = SecretsManager.readSecret(forKey: "openaiApiKey") ?? ""
             
+            let effectiveLang = (language?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+                ? language!
+                : (UserDefaults.standard.string(forKey: "spokenLanguage") ?? "auto")
+
             var payload: [String: Any] = [
                 "mode": mode,
                 "format_style": formatStyle,
                 "retranscribe_audio": retranscribeAudio,
-                "language": UserDefaults.standard.string(forKey: "spokenLanguage") ?? "auto",
+                "language": effectiveLang,
+                "translate_to_english": translateToEnglish,
                 "llm_provider": provider,
                 "llm_base_url": baseURL,
                 "llm_model": model,
@@ -2328,6 +2338,32 @@ class EngineClient: ObservableObject {
             ]
             if let customPrompt = customPrompt, !customPrompt.isEmpty {
                 payload["custom_prompt"] = customPrompt
+            }
+            if let targetLang = targetLanguage, !targetLang.isEmpty {
+                payload["target_language"] = targetLang
+            }
+            if let mid = modelId?.trimmingCharacters(in: .whitespacesAndNewlines), !mid.isEmpty {
+                payload["model_id"] = mid
+                
+                let route: String
+                if let explicitRoute = speechRoute, !explicitRoute.isEmpty {
+                    route = explicitRoute
+                } else {
+                    let hasCloudAccess = isLoggedIn && (isPro || computeBalance > 0)
+                    let hasDeepgramKey = !(SecretsManager.readSecret(forKey: "deepgramApiKey") ?? "").isEmpty
+                    if (mid.contains("deepgram") || mid.contains("nova")) && !hasDeepgramKey && hasCloudAccess {
+                        route = "dicty_cloud"
+                    } else if mid.hasPrefix("groq/") {
+                        route = "groq"
+                    } else if mid.hasPrefix("elevenlabs/") {
+                        route = "elevenlabs"
+                    } else if (mid.hasPrefix("openai/") || mid == "whisper-1") && hasCloudAccess && (SecretsManager.readSecret(forKey: "openaiApiKey") ?? "").isEmpty {
+                        route = "dicty_cloud"
+                    } else {
+                        route = self.effectiveSpeechRoute
+                    }
+                }
+                payload["speech_route"] = route
             }
             
             req.httpBody = try JSONSerialization.data(withJSONObject: payload)
