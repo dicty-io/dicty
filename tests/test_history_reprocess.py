@@ -125,6 +125,32 @@ class TestHistoryReprocess(unittest.TestCase):
             _, kwargs = mock_gen.call_args
             self.assertIn("Translate the entire text accurately into fluent English", kwargs.get("system_prompt", ""))
 
+    def test_pipeline_process_transcription_with_model_override(self):
+        import asyncio
+        from services.pipeline import process_transcription
+
+        with open(self.dummy_record["audio_file"], "w") as f:
+            f.write("DUMMY AUDIO CONTENT")
+
+        with patch("services.pipeline.TranscribeService.transcribe", new_callable=AsyncMock) as mock_trans:
+            mock_trans.return_value = "Hola mundo"
+            res = asyncio.run(process_transcription(
+                audio_path=self.dummy_record["audio_file"],
+                mode="dictation",
+                model_id="large-v3",
+                existing_record_id=self.test_id,
+                language="es",
+            ))
+            self.assertEqual(res.get("status"), "success")
+            mock_trans.assert_called_once()
+            _, kwargs = mock_trans.call_args
+            self.assertEqual(kwargs.get("model_name"), "large-v3")
+            
+            # Verify history record was updated with the model info
+            rec = next((r for r in history_manager.get_all() if r["id"] == self.test_id), None)
+            self.assertIsNotNone(rec)
+            self.assertEqual(rec.get("model_id"), "large-v3")
+
 
 if __name__ == "__main__":
     unittest.main()

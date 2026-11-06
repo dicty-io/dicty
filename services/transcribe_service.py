@@ -1131,6 +1131,12 @@ class TranscribeService:
                     raise
 
     async def transcribe(self, audio_path: str, vocab_data: list = None, openai_api_key: str = "", openrouter_key: str = "", language: str = "auto", translate_to_english: bool = False, enable_auto_completion: bool = False, with_timestamps: bool = False, provider: str = "", skip_cloud: bool = False, model_name: str = "") -> str:
+        """
+        Transcribe an audio file into text using either a local speech engine or cloud STT provider.
+        
+        Supports dynamic model selection override, multilingual routing, vocabulary biasing,
+        and English translation.
+        """
         prompt_str = ""
         if vocab_data:
             # Extract canonical target words for initial prompt biasing

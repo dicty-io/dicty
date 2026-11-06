@@ -165,6 +165,7 @@ async def get_history_audio(record_id: str, request: Request):
     )
 
 class ReprocessRequest(BaseModel):
+    """Payload for reprocessing an existing recording from history."""
     mode: str = "dictation"
     format_style: str = "raw"
     custom_prompt: Optional[str] = None
@@ -189,6 +190,13 @@ class ReprocessRequest(BaseModel):
 
 @router.post("/history/reprocess/{record_id}")
 async def reprocess_history(record_id: str, req: ReprocessRequest):
+    """
+    Reprocess an existing history recording.
+    
+    Supports either full audio re-transcription with a chosen model, route,
+    spoken language, and translation, or fast LLM re-formatting with prompts
+    and English translation instructions.
+    """
     records = history_manager.get_all()
     record = next((r for r in records if r["id"] == record_id), None)
     if not record:
