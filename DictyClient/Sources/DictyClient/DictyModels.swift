@@ -185,6 +185,8 @@ struct DictyHistory: Codable, Identifiable {
     var app_name: String?
     var mode_id: String?
     var mode_reason: String?
+    var model_id: String?
+    var model_name: String?
     
     var isAudioAvailable: Bool {
         if let hasAudio = has_audio {
@@ -197,9 +199,10 @@ struct DictyHistory: Codable, Identifiable {
         case id, timestamp, text, mode, audio_file
         case speaking_wpm, engine_wpm, credits_used, summary, reprocessed_at, title, tags, has_audio, voice, duration, notes
         case app_id, app_name, mode_id, mode_reason
+        case model_id, model_name
     }
 
-    init(id: String, timestamp: String, text: String, mode: String, audio_file: String = "", speaking_wpm: Int? = nil, engine_wpm: Int? = nil, credits_used: Int? = nil, summary: String? = nil, reprocessed_at: String? = nil, title: String? = nil, tags: [String]? = nil, has_audio: Bool? = nil, voice: String? = nil, duration: Double? = nil, notes: String? = nil, app_id: String? = nil, app_name: String? = nil, mode_id: String? = nil, mode_reason: String? = nil) {
+    init(id: String, timestamp: String, text: String, mode: String, audio_file: String = "", speaking_wpm: Int? = nil, engine_wpm: Int? = nil, credits_used: Int? = nil, summary: String? = nil, reprocessed_at: String? = nil, title: String? = nil, tags: [String]? = nil, has_audio: Bool? = nil, voice: String? = nil, duration: Double? = nil, notes: String? = nil, app_id: String? = nil, app_name: String? = nil, mode_id: String? = nil, mode_reason: String? = nil, model_id: String? = nil, model_name: String? = nil) {
         self.id = id
         self.timestamp = timestamp
         self.text = text
@@ -220,6 +223,8 @@ struct DictyHistory: Codable, Identifiable {
         self.app_name = app_name
         self.mode_id = mode_id
         self.mode_reason = mode_reason
+        self.model_id = model_id
+        self.model_name = model_name
     }
 
     init(from decoder: Decoder) throws {
@@ -244,6 +249,8 @@ struct DictyHistory: Codable, Identifiable {
         self.app_name = try container.decodeIfPresent(String.self, forKey: .app_name)
         self.mode_id = try container.decodeIfPresent(String.self, forKey: .mode_id)
         self.mode_reason = try container.decodeIfPresent(String.self, forKey: .mode_reason)
+        self.model_id = try container.decodeIfPresent(String.self, forKey: .model_id)
+        self.model_name = try container.decodeIfPresent(String.self, forKey: .model_name)
     }
 }
 

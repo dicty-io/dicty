@@ -1998,6 +1998,10 @@ struct ReprocessSheetView: View {
     @State private var formatStyle: String = "raw"
     @State private var customPrompt: String = ""
     @State private var retranscribeAudio: Bool = false
+    @State private var selectedModelId: String = ""
+    @State private var selectedLanguage: String = "auto"
+    @State private var translateToEnglish: Bool = false
+    @State private var showSpokenLanguagePicker: Bool = false
     @State private var isProcessing: Bool = false
     @State private var errorMessage: String? = nil
     
@@ -2005,6 +2009,36 @@ struct ReprocessSheetView: View {
         self.record = record
         let initial = (record.mode == "meeting" || record.mode == "focused_meeting") ? record.mode : "dictation"
         _targetMode = State(initialValue: initial)
+        _selectedModelId = State(initialValue: record.model_id ?? "")
+    }
+
+    private var availableVoiceModels: [DictyModel] {
+        let voiceModels = engineClient.models.filter { model in
+            !model.isTextModel && (model.is_downloaded == true || model.is_cloud == true)
+        }
+        return voiceModels.sorted { a, b in
+            let aIsCloud = a.is_cloud == true
+            let bIsCloud = b.is_cloud == true
+            if aIsCloud == bIsCloud {
+                return a.name < b.name
+            }
+            return !aIsCloud
+        }
+    }
+
+    private var effectiveModelId: String {
+        if !selectedModelId.isEmpty {
+            return selectedModelId
+        }
+        if let recModel = record.model_id, !recModel.isEmpty {
+            return recModel
+        }
+        return engineClient.activeModel.isEmpty ? "base.en" : engineClient.activeModel
+    }
+
+    private var isSelectedModelEnglishOnly: Bool {
+        let mid = effectiveModelId
+        return mid.hasSuffix(".en") || mid == "distil-large-v3"
     }
     
     var body: some View {
@@ -2129,7 +2163,7 @@ struct ReprocessSheetView: View {
                                 .foregroundColor(.dictySecondary)
                         } else {
                             if record.isAudioAvailable {
-                                Text("Re-runs speech recognition from audio file. Useful if words were misheard or you changed models.")
+                                Text("Re-runs speech recognition from audio file. Useful if words were misheard, spoken in another language, or you want to use a different model.")
                                     .font(.system(size: 11))
                                     .foregroundColor(.dictySecondary)
                             } else {
@@ -2141,6 +2175,140 @@ struct ReprocessSheetView: View {
                                 .foregroundColor(.dictySecondary)
                             }
                         }
+                    }
+                    
+                    // Transcription Model & Language (Available when re-transcribing audio)
+                    if retranscribeAudio && record.isAudioAvailable {
+                        VStack(alignment: .leading, spacing: 14) {
+                            // Model Picker
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text("TRANSCRIPTION MODEL")
+                                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                                        .foregroundColor(.dictySecondary)
+                                    Spacer()
+                                    if isSelectedModelEnglishOnly {
+                                        Text("English Only")
+                                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                            .foregroundColor(.orange)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Color.orange.opacity(0.12))
+                                            .cornerRadius(4)
+                                    } else {
+                                        Text("Multilingual")
+                                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                            .foregroundColor(.stylishGreen)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Color.stylishGreen.opacity(0.12))
+                                            .cornerRadius(4)
+                                    }
+                                }
+
+                                Picker("", selection: $selectedModelId) {
+                                    let activeName = engineClient.models.first(where: { $0.id == engineClient.activeModel })?.name ?? (engineClient.activeModel.isEmpty ? "System Default" : engineClient.activeModel)
+                                    Text("\(Image(systemName: "checkmark.circle")) System Active (\(activeName))").tag("")
+                                    
+                                    ForEach(availableVoiceModels) { model in
+                                        let isEn = model.id.hasSuffix(".en") || model.id == "distil-large-v3"
+                                        let badge = isEn ? " [EN]" : " [Multi]"
+                                        let iconName = model.is_cloud == true ? "cloud" : "externaldrive"
+                                        Text("\(Image(systemName: iconName)) \(model.name)\(badge)").tag(model.id)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .labelsHidden()
+                            }
+
+                            // Spoken Language Picker
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("SPOKEN AUDIO LANGUAGE")
+                                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                                    .foregroundColor(.dictySecondary)
+
+                                HStack(spacing: 8) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "globe")
+                                            .foregroundColor(.appAccent)
+                                            .font(.system(size: 13))
+                                        Text(LanguageCatalog.displayName(for: selectedLanguage))
+                                            .font(.system(.subheadline, design: .rounded).weight(.medium))
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(Color.primary.opacity(0.04))
+                                    .cornerRadius(6)
+
+                                    Button(action: {
+                                        showSpokenLanguagePicker = true
+                                    }) {
+                                        HStack(spacing: 4) {
+                                            Text("Change")
+                                            Image(systemName: "chevron.down")
+                                                .font(.system(size: 8, weight: .bold))
+                                        }
+                                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                        .foregroundColor(.appAccent)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 5)
+                                        .background(Color.appAccent.opacity(0.12))
+                                        .cornerRadius(6)
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    Spacer()
+                                }
+                            }
+
+                            // Warning if an English-only model is selected with a non-English language
+                            if isSelectedModelEnglishOnly && selectedLanguage != "en" && selectedLanguage != "auto" {
+                                HStack(alignment: .top, spacing: 8) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundColor(.orange)
+                                        .font(.system(size: 14))
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("English-only model selected")
+                                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                                            .foregroundColor(.orange)
+                                        Text("The selected model cannot recognize \(LanguageCatalog.displayName(for: selectedLanguage)). Please switch to a Multilingual model (e.g., base, small, large-v3-turbo, or Deepgram Nova-3).")
+                                            .font(.system(size: 10, design: .rounded))
+                                            .foregroundColor(.dictySecondary)
+                                    }
+                                }
+                                .padding(10)
+                                .background(Color.orange.opacity(0.1))
+                                .cornerRadius(8)
+                            }
+
+                            // Translate to English toggle
+                            Toggle(isOn: $translateToEnglish) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Translate to English")
+                                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                                    Text("Directly translates foreign speech audio into English text.")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.dictySecondary)
+                                }
+                            }
+                            .toggleStyle(.switch)
+                        }
+                        .padding(12)
+                        .background(Color.primary.opacity(0.03))
+                        .cornerRadius(10)
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.06), lineWidth: 1))
+                    } else if !retranscribeAudio {
+                        // Translation toggle for Fast Re-Format (LLM only)
+                        Toggle(isOn: $translateToEnglish) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Translate to English (LLM)")
+                                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                                Text("Translates the existing text directly into fluent English.")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.dictySecondary)
+                            }
+                        }
+                        .toggleStyle(.switch)
                     }
                     
                     if let err = errorMessage {
@@ -2189,7 +2357,24 @@ struct ReprocessSheetView: View {
             }
             .padding(16)
         }
-        .frame(width: 460, height: 480)
+        .frame(width: 480, height: 560)
+        .sheet(isPresented: $showSpokenLanguagePicker) {
+            LanguagePickerSheet(
+                mode: .spokenLanguage,
+                currentCode: selectedLanguage
+            ) { code in
+                selectedLanguage = code
+                LanguageCatalog.recordRecentlyUsed(code: code)
+            }
+        }
+        .onAppear {
+            if selectedModelId.isEmpty {
+                selectedModelId = record.model_id ?? ""
+            }
+            if engineClient.models.isEmpty {
+                engineClient.fetchModels()
+            }
+        }
     }
     
     private func executeReprocess() {
@@ -2201,7 +2386,10 @@ struct ReprocessSheetView: View {
                 mode: targetMode,
                 formatStyle: formatStyle,
                 customPrompt: customPrompt.isEmpty ? nil : customPrompt,
-                retranscribeAudio: retranscribeAudio
+                retranscribeAudio: retranscribeAudio,
+                modelId: selectedModelId.isEmpty ? nil : selectedModelId,
+                language: selectedLanguage,
+                translateToEnglish: translateToEnglish
             )
             await MainActor.run {
                 isProcessing = false

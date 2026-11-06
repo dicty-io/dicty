@@ -383,16 +383,20 @@ class TranscribeService:
         self.whisper_cpp_path = None
 
         # 1. Check if we are running inside a packaged PyInstaller app
-        if hasattr(sys, '_MEIPASS'):
-            packaged_bin = os.path.join(sys._MEIPASS, "bin", "whisper-cli")
-            packaged_server_bin = os.path.join(sys._MEIPASS, "bin", "whisper-server")
-            if os.path.exists(packaged_server_bin):
-                os.chmod(packaged_server_bin, 0o755)
-            if os.path.exists(packaged_bin):
-                # Ensure it's executable
-                os.chmod(packaged_bin, 0o755)
-                self.whisper_cpp_path = packaged_bin
-                return self.whisper_cpp_path
+        base_dir = getattr(sys, '_MEIPASS', None) or (os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else None)
+        if base_dir:
+            ext = ".exe" if sys.platform == "win32" else ""
+            for name in (f"whisper-cli{ext}", "whisper-cli"):
+                for sub in ("bin", ""):
+                    packaged_bin = os.path.join(base_dir, sub, name) if sub else os.path.join(base_dir, name)
+                    if os.path.exists(packaged_bin):
+                        if hasattr(os, "chmod") and sys.platform != "win32":
+                            try:
+                                os.chmod(packaged_bin, 0o755)
+                            except Exception:
+                                pass
+                        self.whisper_cpp_path = packaged_bin
+                        return self.whisper_cpp_path
                 
         # 2. Check local source directory
         local_bin_paths = [
@@ -538,7 +542,13 @@ class TranscribeService:
         Transcribes audio using a locally compiled whisper.cpp executable or server.
         Fastest local execution on M-series Macs using Metal/CoreML acceleration.
         """
-        # 1. Try whisper-server for instant transcription first
+        # 1. Try whisper-server for instant transcription first if the active model on server matches
+        from model_manager import ModelManager
+        mm = ModelManager()
+        active_server_model = mm.get_active_model()
+        requested_model = getattr(self, "active_model_id", None) or active_server_model
+        can_use_server = (requested_model == active_server_model)
+
         url = local_whisper.INFERENCE_URL
         client = _get_local_http_client()
         # Standard dictations (<= 30s) fit within a single Mel window: greedy decoding (beam=1)
@@ -554,57 +564,58 @@ class TranscribeService:
         beam_size = "5" if is_long_clip else "1"
         temp_inc = "0.2" if is_long_clip else "0.0"
 
-        try:
-            with open(audio_path, "rb") as f:
-                files = {"file": (os.path.basename(audio_path), f, "audio/wav")}
-                data = {
-                    "response_format": "verbose_json" if with_timestamps else "json",
-                    "language": language,
-                    "temperature": "0.0",
-                    "temperature_inc": temp_inc,
-                    "beam_size": beam_size,
-                    "best_of": beam_size,
-                    "suppress_non_speech": "true",
-                    "entropy_thold": "2.8",
-                    "logprob_thold": "-1.0",
-                    "no_speech_thold": "0.6"
-                }
-                if not enable_auto_completion:
-                    data["no_context"] = "true"
-                if prompt_str and len(prompt_str.strip()) > 0:
-                    data["prompt"] = f"Vocabulary: {prompt_str.strip()}."
-                if translate_to_english:
-                    data["task"] = "translate"
-                    data["translate"] = "true"
-                
-                t_w0 = time.perf_counter()
-                response = client.post(url, files=files, data=data, timeout=30.0)
-                self.last_whisper_ms = (time.perf_counter() - t_w0) * 1000.0
-                self.last_provider = "whisper-server (RAM)"
-                TranscribeService.last_whisper_ms = self.last_whisper_ms
-                TranscribeService.last_provider = self.last_provider
-                response.raise_for_status()
-                result_json = response.json()
+        if can_use_server:
+            try:
+                with open(audio_path, "rb") as f:
+                    files = {"file": (os.path.basename(audio_path), f, "audio/wav")}
+                    data = {
+                        "response_format": "verbose_json" if with_timestamps else "json",
+                        "language": language,
+                        "temperature": "0.0",
+                        "temperature_inc": temp_inc,
+                        "beam_size": beam_size,
+                        "best_of": beam_size,
+                        "suppress_non_speech": "true",
+                        "entropy_thold": "2.8",
+                        "logprob_thold": "-1.0",
+                        "no_speech_thold": "0.6"
+                    }
+                    if not enable_auto_completion:
+                        data["no_context"] = "true"
+                    if prompt_str and len(prompt_str.strip()) > 0:
+                        data["prompt"] = f"Vocabulary: {prompt_str.strip()}."
+                    if translate_to_english:
+                        data["task"] = "translate"
+                        data["translate"] = "true"
                     
-                if with_timestamps and "segments" in result_json:
-                    lines = []
-                    for seg in result_json["segments"]:
-                        start_s = int(seg.get("start", 0))
-                        end_s = int(seg.get("end", 0))
-                        start_str = f"{start_s//60:02d}:{start_s%60:02d}"
-                        end_str = f"{end_s//60:02d}:{end_s%60:02d}"
-                        text = seg.get("text", "").strip()
-                        if text:
-                            lines.append(f"[{start_str} - {end_str}] {text}")
-                    if lines:
-                        print(f"[*] Successfully extracted {len(lines)} timestamped segments in {self.last_whisper_ms:.1f}ms.")
-                        return "\n".join(lines)
+                    t_w0 = time.perf_counter()
+                    response = client.post(url, files=files, data=data, timeout=30.0)
+                    self.last_whisper_ms = (time.perf_counter() - t_w0) * 1000.0
+                    self.last_provider = "whisper-server (RAM)"
+                    TranscribeService.last_whisper_ms = self.last_whisper_ms
+                    TranscribeService.last_provider = self.last_provider
+                    response.raise_for_status()
+                    result_json = response.json()
+                        
+                    if with_timestamps and "segments" in result_json:
+                        lines = []
+                        for seg in result_json["segments"]:
+                            start_s = int(seg.get("start", 0))
+                            end_s = int(seg.get("end", 0))
+                            start_str = f"{start_s//60:02d}:{start_s%60:02d}"
+                            end_str = f"{end_s//60:02d}:{end_s%60:02d}"
+                            text = seg.get("text", "").strip()
+                            if text:
+                                lines.append(f"[{start_str} - {end_str}] {text}")
+                        if lines:
+                            print(f"[*] Successfully extracted {len(lines)} timestamped segments in {self.last_whisper_ms:.1f}ms.")
+                            return "\n".join(lines)
 
-                if "text" in result_json:
-                    print(f"[*] Successfully used whisper-server (Instant RAM Transcription in {self.last_whisper_ms:.1f}ms).")
-                    return result_json["text"].strip()
-        except Exception as e:
-            print(f"[!] whisper-server inference error: {e}")
+                    if "text" in result_json:
+                        print(f"[*] Successfully used whisper-server (Instant RAM Transcription in {self.last_whisper_ms:.1f}ms).")
+                        return result_json["text"].strip()
+            except Exception as e:
+                print(f"[!] whisper-server inference error: {e}")
 
         # 2. Fall back to Command line whisper.cpp
         from dotenv import load_dotenv
@@ -614,13 +625,13 @@ class TranscribeService:
         if not cpp_path or not os.path.exists(cpp_path):
             raise FileNotFoundError(f"whisper.cpp binary not found at: {cpp_path}")
 
-        model_path = os.getenv("WHISPER_MODEL_PATH")
+        model_path = getattr(self, "whisper_model_path", None) or os.getenv("WHISPER_MODEL_PATH")
         if not model_path or not os.path.exists(model_path):
             from model_manager import ModelManager, MODELS_DIR
             mm = ModelManager()
-            active_id = mm.get_active_model()
-            candidate = os.path.join(MODELS_DIR, f"ggml-{active_id}.bin")
-            if os.path.exists(candidate):
+            active_id = getattr(self, "active_model_id", None) or mm.get_active_model()
+            candidate = mm.get_model_file_path(active_id) or os.path.join(MODELS_DIR, f"ggml-{active_id}.bin")
+            if candidate and os.path.exists(candidate):
                 model_path = candidate
                 
         if not model_path or not os.path.exists(model_path):
@@ -668,7 +679,7 @@ class TranscribeService:
         from faster_whisper import WhisperModel
         
         from model_manager import ModelManager
-        active_model = ModelManager().get_active_model()
+        active_model = getattr(self, "active_model_id", None) or ModelManager().get_active_model()
         model_size = resolve_faster_whisper_model_name(active_model, language)
 
         global _faster_whisper_cache
@@ -939,7 +950,7 @@ class TranscribeService:
                 url = "https://api.groq.com/openai/v1/audio/transcriptions"
                 target_model = model_name.replace("groq/", "")
                 headers = {"Authorization": f"Bearer {api_key}"}
-                print(f"[*] [Cloud STT] Direct Groq API routing ({url}) using key {api_key[:8]}... (Model: {target_model})")
+                print(f"[*] [Cloud STT] Direct Groq API routing ({url}) (Model: {target_model})")
                 fallback_note = "your Groq key"
             else:
                 # Fallback: check if user has OpenRouter key
@@ -969,7 +980,7 @@ class TranscribeService:
                         url += f"&keyterm={quote_plus(term)}"
                 headers = {"Authorization": f"Token {api_key}", "Content-Type": "audio/wav"}
                 is_deepgram = True
-                print(f"[*] [Cloud STT] Direct Deepgram API routing ({url}) using key {api_key[:8]}...")
+                print(f"[*] [Cloud STT] Direct Deepgram API routing ({url})...")
             else:
                 # Fallback to OpenRouter if available
                 for k in [effective_openrouter, env_openrouter]:
@@ -995,7 +1006,7 @@ class TranscribeService:
                 url = "https://api.elevenlabs.io/v1/speech-to-text"
                 target_model = model_name.replace("elevenlabs/", "").replace("-", "_")
                 headers = {"xi-api-key": api_key}
-                print(f"[*] [Cloud STT] Direct ElevenLabs API routing ({url}) using key {api_key[:8]}...")
+                print(f"[*] [Cloud STT] Direct ElevenLabs API routing ({url})...")
                 fallback_note = "your ElevenLabs key"
             else:
                 for k in [effective_openrouter, env_openrouter]:
@@ -1021,7 +1032,7 @@ class TranscribeService:
                             url = "https://api.openai.com/v1/audio/translations"
                         target_model = "whisper-1"
                         headers = {"Authorization": f"Bearer {api_key}"}
-                        print(f"[*] [Cloud STT] Direct OpenAI API routing ({url}) using key {api_key[:10]}...")
+                        print(f"[*] [Cloud STT] Direct OpenAI API routing ({url})...")
                         break
                         
             # If no direct OpenAI key, route via OpenRouter using user's OpenRouter key
@@ -1032,7 +1043,7 @@ class TranscribeService:
                         url = "https://openrouter.ai/api/v1/audio/transcriptions"
                         target_model = "openai/whisper-large-v3"
                         headers = {"Authorization": f"Bearer {api_key}"}
-                        print(f"[*] [Cloud STT] Routing OpenAI model via user's OpenRouter token ({api_key[:10]}...) to {url}")
+                        print(f"[*] [Cloud STT] Routing OpenAI model via user's OpenRouter token to {url}")
                         break
 
         # 6. OpenRouter Speech Models (e.g. nvidia/parakeet-tdt-0.6b-v3, or any model with "/")
@@ -1049,7 +1060,7 @@ class TranscribeService:
                             break
             if api_key:
                 headers = {"Authorization": f"Bearer {api_key}"}
-                print(f"[*] [Cloud STT] OpenRouter API routing ({url}) using user token {api_key[:12]}... (Model: {target_model})")
+                print(f"[*] [Cloud STT] OpenRouter API routing ({url}) (Model: {target_model})")
 
         if not api_key or not url:
             raise ValueError(
@@ -1123,7 +1134,13 @@ class TranscribeService:
                 else:
                     raise
 
-    async def transcribe(self, audio_path: str, vocab_data: list = None, openai_api_key: str = "", openrouter_key: str = "", language: str = "auto", translate_to_english: bool = False, enable_auto_completion: bool = False, with_timestamps: bool = False, provider: str = "", skip_cloud: bool = False) -> str:
+    async def transcribe(self, audio_path: str, vocab_data: list = None, openai_api_key: str = "", openrouter_key: str = "", language: str = "auto", translate_to_english: bool = False, enable_auto_completion: bool = False, with_timestamps: bool = False, provider: str = "", skip_cloud: bool = False, model_name: str = "") -> str:
+        """
+        Transcribe an audio file into text using either a local speech engine or cloud STT provider.
+        
+        Supports dynamic model selection override, multilingual routing, vocabulary biasing,
+        and English translation.
+        """
         prompt_str = ""
         if vocab_data:
             # Extract canonical target words for initial prompt biasing
@@ -1142,18 +1159,27 @@ class TranscribeService:
         
         from model_manager import ModelManager
         mm = ModelManager()
-        active_model_id = mm.get_active_model()
+        active_model_id = (model_name or "").strip() or mm.get_active_model()
+        self.active_model_id = active_model_id
+        local_path = mm.get_model_file_path(active_model_id)
+        if local_path and os.path.exists(local_path):
+            self.whisper_model_path = local_path
         
         models = mm.get_available_models()
         active_model_dict = next((m for m in models if m["id"] == active_model_id), None)
         
         cloud_success = False
-        if not skip_cloud and active_model_dict and active_model_dict.get("is_cloud", False):
+        is_cloud_model = bool(
+            (active_model_dict and active_model_dict.get("is_cloud", False))
+            or ("/" in active_model_id)
+            or active_model_id in ["whisper-1", "deepgram/nova-3", "elevenlabs/scribe_v1"]
+        )
+        if not skip_cloud and is_cloud_model:
             own = direct_provider_for_model(active_model_id)
             has_api_key = bool(openai_api_key or openrouter_key or get_stt_key("openai") or os.getenv("OPENROUTER_API_KEY")
                                or (own and get_stt_key(own)) or provider == "dicty_cloud")
             if has_api_key:
-                print(f"[*] Active model is Cloud. Routing directly to Cloud API (Model: {active_model_id})...")
+                print(f"[*] Target model is Cloud ({active_model_id}). Routing directly to Cloud API...")
                 try:
                     raw_text = await self.transcribe_remote(audio_path, active_model_id, prompt_str, language, override_key=openai_api_key, openrouter_key=openrouter_key, translate_to_english=translate_to_english, provider=provider)
                     if raw_text and raw_text.strip():
@@ -1161,7 +1187,7 @@ class TranscribeService:
                 except Exception as remote_err:
                     print(f"[-] Cloud transcription failed: {remote_err}")
             else:
-                print(f"[!] Active model is Cloud ({active_model_id}) but no API key configured. Falling back to local speech engine...")
+                print(f"[!] Target model is Cloud ({active_model_id}) but no API key configured. Falling back to local speech engine...")
 
         if not cloud_success:
             can_cpp = bool(self.whisper_cpp_path and os.path.exists(self.whisper_cpp_path))
@@ -1274,7 +1300,8 @@ class TranscribeService:
         language: str = "auto",
         translate_to_english: bool = False,
         enable_auto_completion: bool = False,
-        provider: str = ""
+        provider: str = "",
+        model_name: str = ""
     ) -> list[dict]:
         """
         Transcribes audio and returns a list of segment dicts:
@@ -1302,7 +1329,8 @@ class TranscribeService:
             translate_to_english=translate_to_english,
             enable_auto_completion=enable_auto_completion,
             with_timestamps=True,
-            provider=provider
+            provider=provider,
+            model_name=model_name
         )
 
         if not text_with_timestamps or not text_with_timestamps.strip():

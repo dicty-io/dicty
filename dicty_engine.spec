@@ -7,7 +7,37 @@ if not os.path.exists('telemetry_config.json'):
     with open('telemetry_config.json', 'w', encoding='utf-8') as f:
         f.write('{}\n')
 
-datas = [('bin/whisper.cpp/build/bin/whisper-cli', 'bin'), ('bin/whisper.cpp/build/bin/whisper-server', 'bin'), ('models_config.json', '.'), ('telemetry_config.json', '.'), ('.env.example', '.env')]
+# Dynamically resolve whisper-cli and whisper-server binaries across Windows and macOS/Linux
+whisper_datas = []
+for binary_name in ('whisper-cli', 'whisper-server'):
+    candidates = [
+        # Windows MSVC multiconfig layout
+        os.path.join('bin', 'whisper.cpp', 'build', 'bin', 'Release', f'{binary_name}.exe'),
+        # Windows single-config layout
+        os.path.join('bin', 'whisper.cpp', 'build', 'bin', f'{binary_name}.exe'),
+        os.path.join('bin', f'{binary_name}.exe'),
+        f'{binary_name}.exe',
+        # macOS / Linux layout
+        os.path.join('bin', 'whisper.cpp', 'build', 'bin', binary_name),
+        os.path.join('whisper.cpp', 'build', 'bin', binary_name),
+        os.path.join('bin', binary_name),
+        binary_name,
+    ]
+    resolved = None
+    for cand in candidates:
+        if os.path.isfile(cand):
+            resolved = cand
+            break
+    if resolved:
+        whisper_datas.append((resolved, 'bin'))
+    else:
+        # Fallback to default expected path for current OS
+        if sys.platform == 'win32':
+            whisper_datas.append((os.path.join('bin', 'whisper.cpp', 'build', 'bin', 'Release', f'{binary_name}.exe'), 'bin'))
+        else:
+            whisper_datas.append((os.path.join('bin', 'whisper.cpp', 'build', 'bin', binary_name), 'bin'))
+
+datas = whisper_datas + [('models_config.json', '.'), ('telemetry_config.json', '.'), ('.env.example', '.env')]
 binaries = []
 hiddenimports = ['passlib.handlers.bcrypt', 'uvicorn.logging', 'uvicorn.loops', 'uvicorn.loops.auto', 'uvicorn.protocols', 'uvicorn.protocols.http', 'uvicorn.protocols.http.auto', 'uvicorn.protocols.websockets', 'uvicorn.protocols.websockets.auto', 'websockets', 'websockets.legacy.client', 'cloud_streaming', 'transcript_join', 'dicty_paths', 'engine_auth', 'uvicorn.lifespan', 'uvicorn.lifespan.on', 'uvicorn.lifespan.off', 'fastapi', 'starlette', 'anyio', 'pydantic', 'pydantic.fields', 'pydantic.main', 'multipart', 'email_validator', 'passlib.handlers.bcrypt', 'scipy', 'scipy.signal', 'prompts', 'llm_service', 'transcribe_service', 'model_manager', 'audio_recorder', 'agent_service', 'notion_service', 'queue_manager', 'pending_manager', 'auth', 'update_manager', 'telemetry_service', 'db', 'git_service', 'github_service', 'gitlab_service', 'bitbucket_service', 'linear_service', 'confluence_service', 'obsidian_service', 'hub_service', 'tts_service', 'silero_service', 'piper_service', 'dictation_metrics', 'local_whisper', 'local_llm', 'snippet_service', 'meeting_dialogue', 'modes_service', 'style_rules', 'local_corrections', 'typing_extensions', 'pickletools', '_compat_pickle', 'app_rules', 'app_rules_defaults']
 tmp_ret = collect_all('onnxruntime')

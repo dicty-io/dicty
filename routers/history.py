@@ -165,6 +165,7 @@ async def get_history_audio(record_id: str, request: Request):
     )
 
 class ReprocessRequest(BaseModel):
+    """Payload for reprocessing an existing recording from history."""
     mode: str = "dictation"
     format_style: str = "raw"
     custom_prompt: Optional[str] = None
@@ -180,9 +181,22 @@ class ReprocessRequest(BaseModel):
     meeting_show_timestamps: bool = False
     enable_self_correction: bool = False
     self_correction_model: str = ""
+    model_id: Optional[str] = None
+    speech_route: Optional[str] = None
+    translate_to_english: bool = False
+    target_language: Optional[str] = "none"
+    translation_method: Optional[str] = "none"
+    translation_model: Optional[str] = ""
 
 @router.post("/history/reprocess/{record_id}")
 async def reprocess_history(record_id: str, req: ReprocessRequest):
+    """
+    Reprocess an existing history recording.
+    
+    Supports either full audio re-transcription with a chosen model, route,
+    spoken language, and translation, or fast LLM re-formatting with prompts
+    and English translation instructions.
+    """
     records = history_manager.get_all()
     record = next((r for r in records if r["id"] == record_id), None)
     if not record:
@@ -200,6 +214,7 @@ async def reprocess_history(record_id: str, req: ReprocessRequest):
         sys_audio = audio_file_sys if has_separate else audio_path
         mic_audio = audio_file_mic if (audio_file_mic and os.path.exists(audio_file_mic)) else None
         sep_mode = req.speaker_separation or record.get("speaker_separation") or ("you_others" if req.mode in ("meeting", "focused_meeting") else "off")
+        trans_method = req.translation_method or ("built_in" if req.translate_to_english else "none")
         res = await pipeline.process_transcription(
             audio_path=sys_audio,
             mode=req.mode,
@@ -210,6 +225,10 @@ async def reprocess_history(record_id: str, req: ReprocessRequest):
             llm_api_key=req.llm_api_key or "",
             openai_api_key=req.openai_api_key or "",
             language=req.language or "auto",
+            translate_to_english=req.translate_to_english,
+            target_language=req.target_language or "none",
+            translation_method=trans_method,
+            translation_model=req.translation_model or "",
             custom_prompt_text=req.custom_prompt,
             existing_record_id=record_id,
             speaker_separation=sep_mode,
@@ -218,7 +237,9 @@ async def reprocess_history(record_id: str, req: ReprocessRequest):
             enable_self_correction=req.enable_self_correction,
             self_correction_model=req.self_correction_model,
             mic_audio_path=mic_audio,
-            mixed_audio_path=audio_path
+            mixed_audio_path=audio_path,
+            model_id=req.model_id,
+            speech_route=req.speech_route,
         )
         if isinstance(res, dict) and res.get("status") in ["error", "ignored"]:
             return res
@@ -255,6 +276,13 @@ async def reprocess_history(record_id: str, req: ReprocessRequest):
                 system_prompt = get_dictation_custom_system_prompt()
         else:
             system_prompt = None
+            
+        if req.translate_to_english:
+            trans_instr = "Translate the entire text accurately into fluent English. Output ONLY the translated text without introductory commentary or explanations."
+            if system_prompt:
+                system_prompt = f"{system_prompt}\n\n{trans_instr}"
+            else:
+                system_prompt = trans_instr
             
         if system_prompt:
             set_status("Re-formatting transcript (LLM)...")

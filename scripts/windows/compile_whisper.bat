@@ -17,13 +17,32 @@ if defined RUNNER_CACHE_DIR (
 )
 
 set "TARGET_RELEASE_DIR=bin\whisper.cpp\build\bin\Release"
+set "TARGET_BIN_DIR=bin\whisper.cpp\build\bin"
 
-REM 2. Check if pre-compiled binaries are already cached
+REM 2. Check if pre-compiled binaries already exist in build tree
+if exist "%TARGET_RELEASE_DIR%\whisper-cli.exe" if exist "%TARGET_RELEASE_DIR%\whisper-server.exe" (
+    echo [+] Reusing existing whisper.cpp binaries in: %TARGET_RELEASE_DIR%
+    if not exist "%TARGET_BIN_DIR%" mkdir "%TARGET_BIN_DIR%"
+    copy /Y "%TARGET_RELEASE_DIR%\whisper-cli.exe" "%TARGET_BIN_DIR%\" >nul
+    copy /Y "%TARGET_RELEASE_DIR%\whisper-server.exe" "%TARGET_BIN_DIR%\" >nul
+    if not exist "bin" mkdir "bin"
+    copy /Y "%TARGET_RELEASE_DIR%\whisper-cli.exe" "bin\" >nul
+    copy /Y "%TARGET_RELEASE_DIR%\whisper-server.exe" "bin\" >nul
+    exit /b 0
+)
+
+REM 3. Check if pre-compiled binaries are already cached
 if exist "%CACHE_DIR%\whisper-cli.exe" if exist "%CACHE_DIR%\whisper-server.exe" (
     echo [+] Reusing cached whisper.cpp binaries from: %CACHE_DIR%
     if not exist "%TARGET_RELEASE_DIR%" mkdir "%TARGET_RELEASE_DIR%"
     copy /Y "%CACHE_DIR%\whisper-cli.exe" "%TARGET_RELEASE_DIR%\" >nul
     copy /Y "%CACHE_DIR%\whisper-server.exe" "%TARGET_RELEASE_DIR%\" >nul
+    if not exist "%TARGET_BIN_DIR%" mkdir "%TARGET_BIN_DIR%"
+    copy /Y "%CACHE_DIR%\whisper-cli.exe" "%TARGET_BIN_DIR%\" >nul
+    copy /Y "%CACHE_DIR%\whisper-server.exe" "%TARGET_BIN_DIR%\" >nul
+    if not exist "bin" mkdir "bin"
+    copy /Y "%CACHE_DIR%\whisper-cli.exe" "bin\" >nul
+    copy /Y "%CACHE_DIR%\whisper-server.exe" "bin\" >nul
     echo [+] Restored whisper binaries from runner cache successfully!
     exit /b 0
 )
@@ -46,8 +65,12 @@ if %ERRORLEVEL% NEQ 0 (
 
 set WHISPER_DIR=bin\whisper.cpp
 
-if not exist "%WHISPER_DIR%" (
+if not exist "%WHISPER_DIR%\CMakeLists.txt" (
     echo [*] Cloning whisper.cpp repository...
+    if exist "%WHISPER_DIR%" (
+        echo [*] %WHISPER_DIR% exists without CMakeLists.txt. Re-cloning fresh...
+        rmdir /s /q "%WHISPER_DIR%"
+    )
     if not exist bin mkdir bin
     git clone https://github.com/ggerganov/whisper.cpp "%WHISPER_DIR%"
 )
@@ -76,12 +99,19 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 echo [+] Compilation successful!
-echo     Binaries are in: %WHISPER_DIR%\build\bin\Release\
+echo     Binaries are in: %TARGET_RELEASE_DIR%\
+
+if not exist "%TARGET_BIN_DIR%" mkdir "%TARGET_BIN_DIR%"
+copy /Y "%TARGET_RELEASE_DIR%\whisper-cli.exe" "%TARGET_BIN_DIR%\" >nul
+copy /Y "%TARGET_RELEASE_DIR%\whisper-server.exe" "%TARGET_BIN_DIR%\" >nul
+if not exist "%ROOT_DIR%\bin" mkdir "%ROOT_DIR%\bin"
+copy /Y "%TARGET_RELEASE_DIR%\whisper-cli.exe" "%ROOT_DIR%\bin\" >nul
+copy /Y "%TARGET_RELEASE_DIR%\whisper-server.exe" "%ROOT_DIR%\bin\" >nul
 
 REM Save to persistent runner cache
 if not exist "%CACHE_DIR%" mkdir "%CACHE_DIR%"
-copy /Y "build\bin\Release\whisper-cli.exe" "%CACHE_DIR%\" >nul
-copy /Y "build\bin\Release\whisper-server.exe" "%CACHE_DIR%\" >nul
+copy /Y "%TARGET_RELEASE_DIR%\whisper-cli.exe" "%CACHE_DIR%\" >nul
+copy /Y "%TARGET_RELEASE_DIR%\whisper-server.exe" "%CACHE_DIR%\" >nul
 echo [+] Saved compiled whisper.cpp binaries to runner cache (%CACHE_DIR%)!
 
 cd /d "%ROOT_DIR%"
