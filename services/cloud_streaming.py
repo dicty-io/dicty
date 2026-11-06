@@ -122,7 +122,7 @@ class DeepgramLiveSession(StreamSession):
         from urllib.parse import urlencode
         params = [("model", self.model), ("encoding", "linear16"), ("sample_rate", str(self.sample_rate)),
                   ("channels", "1"), ("smart_format", "true"), ("punctuate", "true"),
-                  ("interim_results", "false"), ("endpointing", "300")]
+                  ("interim_results", "false"), ("endpointing", "200")]
         if self.language and self.language != "auto":
             params.append(("language", self.language))
         elif self.model.startswith("nova-3"):

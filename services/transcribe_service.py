@@ -8,6 +8,7 @@ import local_whisper
 import subprocess
 import shutil
 import multiprocessing
+import threading
 from urllib.parse import quote_plus
 from transcript_join import join_transcript_parts, normalize_whisper_text
 
@@ -379,6 +380,7 @@ class TranscribeService:
         # 0. Check if WHISPER_CPP_PATH from env exists
         if self.whisper_cpp_path and os.path.exists(self.whisper_cpp_path):
             return self.whisper_cpp_path
+        self.whisper_cpp_path = None
 
         # 1. Check if we are running inside a packaged PyInstaller app
         if hasattr(sys, '_MEIPASS'):
@@ -399,8 +401,10 @@ class TranscribeService:
             "bin/whisper-cli.exe",
             "bin/whisper.cpp/main.exe",
             "bin/whisper.cpp/build/bin/whisper-cli",
+            "whisper.cpp/build/bin/whisper-cli",
             "bin/whisper-cli",
-            "bin/whisper.cpp/main"
+            "bin/whisper.cpp/main",
+            os.path.expanduser("~/.dicty_cache/whisper/whisper-cli")
         ]
         
         for p in local_bin_paths:
@@ -408,9 +412,103 @@ class TranscribeService:
                 self.whisper_cpp_path = os.path.abspath(p)
                 return self.whisper_cpp_path
                 
-        # 3. If missing, warn rather than crash engine startup
-        print("[!] Warning: whisper-cli binary not found. Run ./compile_whisper.sh to compile local whisper.cpp.")
-        return self.whisper_cpp_path
+        # 3. If missing from local paths and compilation not disabled, return None
+        return None
+
+    _compile_lock = threading.Lock()
+    _compile_attempted = False
+    _compile_failed = False
+
+    def _auto_compile_whisper(self, force: bool = False):
+        """
+        Automatically compiles native whisper.cpp once if running from source in development.
+        Does not re-attempt if a previous compilation failed unless force=True.
+        """
+        import subprocess
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        compile_script = os.path.join(project_root, "scripts", "compile_whisper.sh")
+        if not os.path.exists(compile_script):
+            return None
+
+        # Check existing without lock first
+        for p in [
+            os.path.join(project_root, "bin/whisper.cpp/build/bin/whisper-cli"),
+            os.path.join(project_root, "whisper.cpp/build/bin/whisper-cli"),
+            os.path.expanduser("~/.dicty_cache/whisper/whisper-cli")
+        ]:
+            if os.path.exists(p):
+                self.whisper_cpp_path = os.path.abspath(p)
+                return self.whisper_cpp_path
+
+        with self._compile_lock:
+            # Re-check under lock
+            for p in [
+                os.path.join(project_root, "bin/whisper.cpp/build/bin/whisper-cli"),
+                os.path.join(project_root, "whisper.cpp/build/bin/whisper-cli"),
+                os.path.expanduser("~/.dicty_cache/whisper/whisper-cli")
+            ]:
+                if os.path.exists(p):
+                    self.whisper_cpp_path = os.path.abspath(p)
+                    return self.whisper_cpp_path
+
+            if TranscribeService._compile_attempted and not force:
+                return None
+
+            TranscribeService._compile_attempted = True
+            print("[*] whisper-cli missing in source checkout. Auto-compiling native whisper.cpp...")
+            try:
+                res = subprocess.run(
+                    ["bash", compile_script],
+                    cwd=project_root,
+                    capture_output=True,
+                    text=True,
+                    timeout=180
+                )
+                if res.returncode == 0:
+                    print("[+] Successfully auto-compiled native whisper.cpp!")
+                    TranscribeService._compile_failed = False
+                    for p in [
+                        os.path.join(project_root, "bin/whisper.cpp/build/bin/whisper-cli"),
+                        os.path.join(project_root, "whisper.cpp/build/bin/whisper-cli"),
+                        os.path.expanduser("~/.dicty_cache/whisper/whisper-cli")
+                    ]:
+                        if os.path.exists(p):
+                            self.whisper_cpp_path = os.path.abspath(p)
+                            return self.whisper_cpp_path
+                else:
+                    TranscribeService._compile_failed = True
+                    tail = res.stderr[-500:] if res.stderr else res.stdout[-500:]
+                    print(f"[!] Auto-compilation failed (code {res.returncode}): {tail}")
+            except Exception as e:
+                TranscribeService._compile_failed = True
+                print(f"[!] Error auto-compiling whisper: {e}")
+        return None
+
+    def has_local_engine(self) -> bool:
+        """Returns True if any local speech engine (whisper.cpp, faster-whisper, or whisper) is available. Non-blocking."""
+        if self.whisper_cpp_path and os.path.exists(self.whisper_cpp_path):
+            return True
+        cpp = self._ensure_whisper_cpp_binary()
+        if cpp and os.path.exists(cpp):
+            return True
+        import importlib.util
+        if importlib.util.find_spec("faster_whisper") is not None:
+            return True
+        if importlib.util.find_spec("whisper") is not None:
+            return True
+        return False
+        """Returns True if any local speech engine (whisper.cpp, faster-whisper, or whisper) is available."""
+        if self.whisper_cpp_path and os.path.exists(self.whisper_cpp_path):
+            return True
+        cpp = self._ensure_whisper_cpp_binary()
+        if cpp and os.path.exists(cpp):
+            return True
+        import importlib.util
+        if importlib.util.find_spec("faster_whisper") is not None:
+            return True
+        if importlib.util.find_spec("whisper") is not None:
+            return True
+        return False
 
 
     def _update_env_cpp_path(self, cpp_path: str):
@@ -799,13 +897,17 @@ class TranscribeService:
             url = f"{dicty_cloud_url}/v1/audio/transcriptions"
             api_key = override_key  # Dicty JWT Token
             if not api_key:
-                try:
-                    import auth
-                    session = auth.SecureAuthManager.get_session()
-                    if session and session.get("jwt_token"):
-                        api_key = session["jwt_token"]
-                except Exception:
-                    pass
+                from urllib.parse import urlparse
+                parsed_cloud = urlparse(dicty_cloud_url)
+                is_loopback = parsed_cloud.hostname in ("127.0.0.1", "localhost")
+                if parsed_cloud.scheme == "https" or is_loopback:
+                    try:
+                        import auth
+                        api_key = auth.SecureAuthManager.get_jwt_token()
+                    except Exception as err:
+                        print(f"[!] Dicty Cloud token unavailable: {err}")
+                else:
+                    print(f"[!] Dicty Cloud token omitted: cleartext HTTP destination '{dicty_cloud_url}' is not allowed for stored credentials.")
 
             if not api_key:
                 # No valid Dicty token found! Fallback to OpenRouter if user has an OpenRouter key
@@ -1108,13 +1210,29 @@ class TranscribeService:
                     print(f"[-] Local python-whisper failed: {python_err}")
 
             if not transcription_done:
-                # 4. Direct fast remote transcription fallback (OpenAI / OpenRouter)
-                try:
-                    print(f"[*] Routing directly to Cloud STT Whisper transcription (Language: {language})...")
-                    raw_text = await self.transcribe_remote(audio_path, "whisper-1", prompt_str, language, override_key=openai_api_key, openrouter_key=openrouter_key, translate_to_english=translate_to_english, provider=provider)
-                    transcription_done = True
-                except Exception as remote_err:
-                    print(f"[-] Remote transcription failed: {remote_err}")
+                has_any_local = can_cpp or can_faster or can_python
+                if not has_any_local and not (active_model_dict and active_model_dict.get("is_cloud", False)):
+                    print("[-] Local transcription failed: No local Whisper speech engine found (whisper-cli is not compiled at 'bin/whisper.cpp/build/bin/whisper-cli'). Run './scripts/compile_whisper.sh' to compile native whisper.cpp.")
+
+                has_cloud_auth = bool(
+                    provider == "dicty_cloud"
+                    or get_stt_key("deepgram")
+                    or openai_api_key
+                    or openrouter_key
+                    or get_stt_key("openai")
+                )
+                if has_cloud_auth:
+                    # 4. Direct fast remote transcription fallback (Deepgram Nova-3 when Dicty Cloud / Deepgram available, else OpenAI / OpenRouter)
+                    try:
+                        target_fallback_model = "deepgram/nova-3" if (provider == "dicty_cloud" or get_stt_key("deepgram")) else "whisper-1"
+                        print(f"[*] Routing directly to Cloud STT transcription ({target_fallback_model}, Language: {language})...")
+                        raw_text = await self.transcribe_remote(audio_path, target_fallback_model, prompt_str, language, override_key=openai_api_key, openrouter_key=openrouter_key, translate_to_english=translate_to_english, provider=provider)
+                        transcription_done = True
+                    except Exception as remote_err:
+                        print(f"[-] Remote transcription fallback failed: {remote_err}")
+                else:
+                    if not has_any_local:
+                        print("[-] Cannot perform Cloud STT fallback: No Cloud STT API key or Dicty Cloud connection configured.")
 
         if not raw_text:
             return ""

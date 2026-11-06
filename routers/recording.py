@@ -65,6 +65,7 @@ async def start_recording(device_id: int = None, language: str = "auto", is_mute
     recorder.last_manual_override_active = manual_override_active
     recorder.last_resolved_mode = resolved_mode
     recorder.last_mode_reason = mode_reason
+    recorder.last_cloud_route = cloud_route
 
     # Warm the direct cloud STT connection while the user is still speaking
     asyncio.create_task(transcribe_service.prewarm_direct_provider(model_manager.get_active_model(), cloud_route))
@@ -100,6 +101,17 @@ async def start_recording(device_id: int = None, language: str = "auto", is_mute
             status_code=400,
             detail=f"Active model '{active_model_id}' is not installed. Please download it in Models Library before recording."
         )
+
+    models = mm.get_available_models()
+    active_model_dict = next((m for m in models if m["id"] == active_model_id), None)
+    is_cloud_model = (active_model_dict and active_model_dict.get("is_cloud", False)) or ("/" in active_model_id)
+    if not is_cloud_model:
+        ts = TranscribeService()
+        if not ts.has_local_engine():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Local speech engine (whisper-cli) is not compiled for offline model '{active_model_id}'. Please run './scripts/compile_whisper.sh' in your terminal or select a Cloud model in Models Library."
+            )
 
     play_start_chime()
     try:
@@ -207,7 +219,8 @@ async def stop_recording(
     domain: str = Form(""),
     mode_override: str = Form(""),
     manual_override_active: str = Form("false"),
-    author_name: str = Form("")
+    author_name: str = Form(""),
+    speech_route: str = Form("")
 ):
     translate_bool = translate_to_english.lower() == "true"
     auto_complete_bool = enable_auto_completion.lower() == "true"
@@ -219,8 +232,15 @@ async def stop_recording(
         mode, mode_id, mode_style, correction_location, self_correction_bool, self_correction_model
     )
     
-    if not recorder.is_recording and file is None and not audio_file_path:
+    was_recording = recorder.is_recording
+    if not was_recording and file is None and not audio_file_path:
         return {"status": "not_recording"}
+
+    # Snapshot speech route belonging to this recording session and immediately clear
+    # recorder.last_cloud_route so a subsequent recording does not have its route wiped.
+    snapshot_speech_route = speech_route or (getattr(recorder, "last_cloud_route", "") if was_recording else "") or llm_provider
+    if was_recording and hasattr(recorder, "last_cloud_route"):
+        recorder.last_cloud_route = ""
     
     play_stop_chime()
     t_start = time.perf_counter()
@@ -417,7 +437,8 @@ async def stop_recording(
             app_id=effective_app_id,
             mode_id=resolved_mode_id,
             mode_reason=resolved_mode_reason,
-            skip_cloud=skip_cloud_fallback
+            skip_cloud=skip_cloud_fallback,
+            speech_route=snapshot_speech_route
         )
     finally:
         if temp_mixed and os.path.exists(temp_mixed):

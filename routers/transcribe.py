@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from typing import Optional
 import asyncio
 import dictation_metrics
 import engine_auth
@@ -298,6 +299,7 @@ async def transcribe_local_file(
     llm_model: str = Form(""),
     llm_api_key: str = Form(""),
     openai_api_key: str = Form(""),
+    speech_route: Optional[str] = Form(None),
     incognito_mode: str = Form("false")
 ):
     translate_bool = translate_to_english.lower() == "true"
@@ -344,7 +346,19 @@ async def transcribe_local_file(
         start_time = time.time()
         
         # Transcribe
-        raw_text = await transcriber.transcribe(temp_path, openai_api_key=llm_api_key if llm_provider == "dicty_cloud" else openai_api_key, language=language, translate_to_english=translate_bool, enable_auto_completion=auto_complete_bool, openrouter_key=llm_api_key, provider=llm_provider)
+        effective_speech_route = speech_route if speech_route else llm_provider
+        from services.pipeline import resolve_speech_credentials
+        creds = resolve_speech_credentials(effective_speech_route, openai_api_key, llm_api_key)
+
+        raw_text = await transcriber.transcribe(
+            temp_path,
+            openai_api_key=creds["openai_api_key"],
+            language=language,
+            translate_to_english=translate_bool,
+            enable_auto_completion=auto_complete_bool,
+            openrouter_key=creds["openrouter_key"],
+            provider=effective_speech_route
+        )
         
         # Target Language LLM Translation
         if target_language and target_language != "none" and target_language != "":

@@ -471,19 +471,37 @@ class ModelManager:
                 pass
         return "q5_0"
 
+    _settings_lock = threading.Lock()
+
     def set_model_quality(self, model_id: str, quality: str):
-        config = {}
-        if os.path.exists(SETTINGS_FILE):
+        with self._settings_lock:
+            config = {}
+            if os.path.exists(SETTINGS_FILE):
+                try:
+                    with open(SETTINGS_FILE, "r") as f:
+                        config = json.load(f)
+                except Exception:
+                    pass
+            if "model_qualities" not in config:
+                config["model_qualities"] = {}
+            config["model_qualities"][model_id] = quality
+            
+            import tempfile
+            settings_dir = os.path.dirname(SETTINGS_FILE) or "."
+            os.makedirs(settings_dir, exist_ok=True)
+            tmp_settings = None
             try:
-                with open(SETTINGS_FILE, "r") as f:
-                    config = json.load(f)
-            except:
-                pass
-        if "model_qualities" not in config:
-            config["model_qualities"] = {}
-        config["model_qualities"][model_id] = quality
-        with open(SETTINGS_FILE, "w") as f:
-            json.dump(config, f, indent=2)
+                with tempfile.NamedTemporaryFile("w", dir=settings_dir, delete=False, suffix=".tmp") as f:
+                    tmp_settings = f.name
+                    json.dump(config, f, indent=2)
+                os.replace(tmp_settings, SETTINGS_FILE)
+            except Exception as err:
+                if tmp_settings and os.path.exists(tmp_settings):
+                    try:
+                        os.remove(tmp_settings)
+                    except Exception:
+                        pass
+                print(f"[!] Error saving settings.json atomically: {err}")
 
     def start_download(self, model_id: str, quality: str = "q5_0", on_progress=None, on_complete=None):
         if model_id in self.downloading:
@@ -670,20 +688,25 @@ class ModelManager:
         dest_path = None
         part_path = None
         try:
+            os.makedirs(MODELS_DIR, exist_ok=True)
             # Prefer downloading an upstream pre-quantized file instead of quantizing locally.
             # (whisper-quantize is not bundled in the packaged app, so local quantization silently
             # left fp16 models on disk: ~2.5x more RAM and slower inference.)
-            url, prequantized_quality = self._prequantized_url(model_id, url, quality)
+            base_url = url
+            candidate_url, prequantized_quality = self._prequantized_url(model_id, base_url, quality)
             if prequantized_quality:
-                print(f"[*] Using pre-quantized {model_id} ({prequantized_quality}): {url}")
+                print(f"[*] Using pre-quantized {model_id} ({prequantized_quality}): {candidate_url}")
                 quality = prequantized_quality
+                urls_to_try = [candidate_url, base_url] if base_url and base_url != candidate_url else [candidate_url]
+            else:
+                urls_to_try = [candidate_url]
 
             if model_data.get("filename"):
                 filename = model_data["filename"]
             else:
-                ext = ".gguf" if url.endswith(".gguf") else ".bin"
+                ext = ".gguf" if candidate_url.endswith(".gguf") else ".bin"
                 filename = f"ggml-{model_id}{ext}"
-            ext = (os.path.splitext(filename)[1] or (".gguf" if url.endswith(".gguf") else ".bin")).lower()
+            ext = (os.path.splitext(filename)[1] or (".gguf" if candidate_url.endswith(".gguf") else ".bin")).lower()
             dest_path = os.path.realpath(os.path.join(MODELS_DIR, filename))
             if not dest_path.startswith(os.path.realpath(MODELS_DIR)):
                 print(f"[!] Invalid model path for model_id {model_id}")
@@ -695,40 +718,89 @@ class ModelManager:
 
             part_path = dest_path + ".part"
             timeout_config = httpx.Timeout(connect=30.0, read=120.0, write=60.0, pool=30.0)
-            with httpx.stream("GET", url, follow_redirects=True, timeout=timeout_config) as response:
-                response.raise_for_status()
-                total_bytes = int(response.headers.get("content-length", 0))
-                downloaded_bytes = 0
-                
-                with open(part_path, "wb") as f:
-                    for chunk in response.iter_bytes(chunk_size=1024*1024):
-                        if model_id in self.cancelled_downloads:
-                            print(f"[*] Download cancelled for {model_id}")
-                            break
-                        f.write(chunk)
-                        downloaded_bytes += len(chunk)
-                        
-                        if total_bytes > 0:
-                            progress = (downloaded_bytes / total_bytes) * 100.0
-                            self.download_progress[model_id] = progress
-                            if on_progress:
-                                on_progress(model_id, progress)
-                                
-                if model_id in self.cancelled_downloads:
-                    self.cancelled_downloads.discard(model_id)
-                    if os.path.exists(part_path):
-                        os.remove(part_path)
-                    if os.path.exists(dest_path):
-                        os.remove(dest_path)
-                    self.downloading.discard(model_id)
-                    self.download_progress[model_id] = -1.0
-                    if on_complete:
-                        on_complete(model_id, False)
-                    return
 
-                # Download finished successfully - atomically move part to destination
-                if os.path.exists(part_path):
-                    os.replace(part_path, dest_path)
+            def _parse_approx_size(size_str: str) -> int:
+                """Parse a human-readable size string (e.g. '142 MB', '1.5 GB') into bytes."""
+                if not size_str:
+                    return 0
+                s = size_str.strip().upper()
+                try:
+                    if s.endswith("GB"):
+                        return int(float(s[:-2].strip()) * 1024 * 1024 * 1024)
+                    if s.endswith("MB"):
+                        return int(float(s[:-2].strip()) * 1024 * 1024)
+                    if s.endswith("KB"):
+                        return int(float(s[:-2].strip()) * 1024)
+                except Exception:
+                    pass
+                return 0
+
+            download_success = False
+            last_err = None
+            for try_idx, current_url in enumerate(urls_to_try):
+                try:
+                    if try_idx > 0:
+                        print(f"[*] Falling back to base model URL: {current_url}")
+                        prequantized_quality = None
+                    with httpx.stream("GET", current_url, follow_redirects=True, timeout=timeout_config) as response:
+                        response.raise_for_status()
+                        total_bytes = int(response.headers.get("content-length", 0))
+                        if total_bytes <= 0:
+                            total_bytes = _parse_approx_size(model_data.get("size", ""))
+                        downloaded_bytes = 0
+                        
+                        with open(part_path, "wb") as f:
+                            for chunk in response.iter_bytes(chunk_size=1024*1024):
+                                if model_id in self.cancelled_downloads:
+                                    print(f"[*] Download cancelled for {model_id}")
+                                    break
+                                f.write(chunk)
+                                downloaded_bytes += len(chunk)
+                                
+                                if total_bytes > 0:
+                                    progress = min(99.0, (downloaded_bytes / total_bytes) * 100.0)
+                                    self.download_progress[model_id] = progress
+                                    if on_progress:
+                                        on_progress(model_id, progress)
+                                elif downloaded_bytes > 0:
+                                    # Monotonic progress indicator for chunked streams without content-length
+                                    pseudo_mb = downloaded_bytes / (1024 * 1024)
+                                    progress = min(95.0, 5.0 + pseudo_mb * 0.8)
+                                    self.download_progress[model_id] = progress
+                                    if on_progress:
+                                        on_progress(model_id, progress)
+                        
+                        if model_id in self.cancelled_downloads:
+                            self.cancelled_downloads.discard(model_id)
+                            if os.path.exists(part_path):
+                                os.remove(part_path)
+                            if os.path.exists(dest_path):
+                                os.remove(dest_path)
+                            self.downloading.discard(model_id)
+                            self.download_progress[model_id] = -1.0
+                            if on_complete:
+                                on_complete(model_id, False)
+                            return
+                        download_success = True
+                        break
+                except Exception as stream_err:
+                    last_err = stream_err
+                    print(f"[!] Download attempt from '{current_url}' failed: {stream_err}")
+                    if os.path.exists(part_path):
+                        try:
+                            os.remove(part_path)
+                        except Exception:
+                            pass
+                    if try_idx < len(urls_to_try) - 1:
+                        continue
+                    raise last_err
+
+            if not download_success:
+                raise last_err or RuntimeError("Download failed for all candidate URLs")
+
+            # Download finished successfully - atomically move part to destination
+            if os.path.exists(part_path):
+                os.replace(part_path, dest_path)
                                 
                 if not ext == ".gguf" and quality != "f16" and not prequantized_quality:
                     quantize_bin = get_resource_path(os.path.join("bin", "whisper.cpp", "build", "bin", "whisper-quantize"))

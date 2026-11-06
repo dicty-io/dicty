@@ -25,8 +25,27 @@ from services.status import set_status
 from services.http_client import shared_http_client
 from services.whisper_server import start_whisper_server
 from services import whisper_server
+from typing import Optional, Dict, Any
 
 _LOCAL_PROVIDER_MARKERS = ("whisper-server", "whisper-cli", "faster-whisper", "openai-whisper", "VAD stream (local)")
+
+def resolve_speech_credentials(
+    route: str,
+    openai_api_key: Optional[str] = None,
+    llm_api_key: Optional[str] = None
+) -> Dict[str, Optional[str]]:
+    """Resolve authentication credentials for STT engines based on route."""
+    jwt = None
+    if route == "dicty_cloud":
+        try:
+            from auth import SecureAuthManager
+            jwt = SecureAuthManager.get_jwt_token()
+        except Exception as e:
+            print(f"[!] Dicty Cloud token unavailable: {e}")
+    return {
+        "openai_api_key": jwt if route == "dicty_cloud" else (openai_api_key if route == "openai" else None),
+        "openrouter_key": llm_api_key if route == "openrouter" else None,
+    }
 
 def _resolve_history_path(filename: str) -> str | None:
     base_dir = os.path.realpath(HISTORY_DIR)
@@ -220,8 +239,10 @@ async def process_transcription(
     mode_style: str = None,
     correction_location: str = None,
     skip_cloud: bool = False,
+    speech_route: str = None,
 ):
     _metrics_t0 = time.perf_counter()
+    effective_speech_route = speech_route or llm_provider
     if (dictation_format_style or "").strip().lower() == "auto" and mode in ("meeting", "focused_meeting"):
         dictation_format_style = "meeting_summary"
     else:
@@ -240,9 +261,10 @@ async def process_transcription(
     whisper_translate = (translation_method == "built_in") or translate_to_english
     transcriber = TranscribeService()
     # Let TranscribeService auto-resolve the binary and model paths internally
-    # rather than strictly relying on .env which may be empty.
-    if os.getenv("WHISPER_CPP_PATH"):
-        transcriber.whisper_cpp_path = os.getenv("WHISPER_CPP_PATH")
+    # rather than strictly relying on .env which may be empty or point to a removed file.
+    env_cpp = os.getenv("WHISPER_CPP_PATH")
+    if env_cpp and os.path.exists(env_cpp):
+        transcriber.whisper_cpp_path = env_cpp
     else:
         transcriber.whisper_cpp_path = transcriber._ensure_whisper_cpp_binary()
         
@@ -300,16 +322,18 @@ async def process_transcription(
         set_status("Transcribing meeting audio tracks...")
         tasks = []
         has_mic = bool(mic_audio_path and os.path.exists(mic_audio_path) and os.path.getsize(mic_audio_path) > 100)
+        creds = resolve_speech_credentials(effective_speech_route, openai_api_key, llm_api_key)
+
         if has_mic:
             tasks.append(transcriber.transcribe_segments(
                 mic_audio_path,
                 vocab_data=vocab_data,
-                openai_api_key=llm_api_key if llm_provider == "dicty_cloud" else openai_api_key,
-                openrouter_key=llm_api_key,
+                openai_api_key=creds["openai_api_key"],
+                openrouter_key=creds["openrouter_key"],
                 language=language,
                 translate_to_english=whisper_translate,
                 enable_auto_completion=enable_auto_completion,
-                provider=llm_provider
+                provider=effective_speech_route
             ))
         else:
             async def _empty_segs(): return []
@@ -318,12 +342,12 @@ async def process_transcription(
         tasks.append(transcriber.transcribe_segments(
             audio_path,
             vocab_data=vocab_data,
-            openai_api_key=llm_api_key if llm_provider == "dicty_cloud" else openai_api_key,
-            openrouter_key=llm_api_key,
+            openai_api_key=creds["openai_api_key"],
+            openrouter_key=creds["openrouter_key"],
             language=language,
             translate_to_english=whisper_translate,
             enable_auto_completion=enable_auto_completion,
-            provider=llm_provider
+            provider=effective_speech_route
         ))
 
         try:
@@ -397,16 +421,18 @@ async def process_transcription(
     else:
         try:
             set_status("Transcribing meeting audio..." if is_meeting_mode else "Transcribing audio...")
+            creds = resolve_speech_credentials(effective_speech_route, openai_api_key, llm_api_key)
+
             raw_text = await transcriber.transcribe(
                 audio_path, 
                 vocab_data, 
-                openai_api_key=llm_api_key if llm_provider == "dicty_cloud" else openai_api_key, 
-                openrouter_key=llm_api_key, 
+                openai_api_key=creds["openai_api_key"], 
+                openrouter_key=creds["openrouter_key"], 
                 language=language, 
                 translate_to_english=whisper_translate, 
                 enable_auto_completion=enable_auto_completion,
                 with_timestamps=False,
-                provider=llm_provider,
+                provider=effective_speech_route,
                 skip_cloud=skip_cloud
             )
             if not raw_text or raw_text.strip() == "":

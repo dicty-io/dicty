@@ -5,6 +5,7 @@ from transcribe_service import TranscribeService
 from model_manager import ModelManager
 
 async def test_routing():
+    """Verify cloud STT routing across OpenRouter, Groq, and Dicty Cloud with credentials."""
     ts = TranscribeService()
     
     print("Testing OpenRouter routing for nvidia/parakeet-tdt-0.6b-v3...")
@@ -48,7 +49,7 @@ async def test_routing():
             res_groq = await ts.transcribe_remote(
                 audio_path=dummy_wav,
                 model_name="groq/whisper-large-v3-turbo",
-                openrouter_key="sk-or-v1-my-custom-user-token",
+                override_key="gsk_test_groq_key_12345",
                 provider="openrouter"
             )
             call_args, call_kwargs = mock_post.call_args
@@ -70,9 +71,28 @@ async def test_routing():
             url = call_args[0]
             headers = call_kwargs["headers"]
             print(f"Verified Dicty Cloud URL: {url}")
-            assert "dicty-backend" in url or "api.dicty.io" in url
+            expected_base = os.getenv("DICTY_CLOUD_URL", "https://dicty-backend.dicty-backend.workers.dev")
+            assert url == f"{expected_base}/v1/audio/transcriptions"
             assert headers["Authorization"] == "Bearer dicty-jwt-sample-token"
             print("[PASS] Dicty Cloud routing verified!")
+
+            # 4. Test Deepgram Nova-3 Dicty Cloud routing
+            ts._user_stt_keys = {}
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("DEEPGRAM_API_KEY", None)
+                res_nova = await ts.transcribe_remote(
+                    audio_path=dummy_wav,
+                    model_name="deepgram/nova-3",
+                    override_key="dicty-jwt-sample-token",
+                    provider="dicty_cloud"
+                )
+                call_args, call_kwargs = mock_post.call_args
+                url = call_args[0]
+                headers = call_kwargs["headers"]
+                print(f"Verified Nova-3 URL: {url}")
+                assert url == f"{expected_base}/v1/audio/transcriptions"
+                assert headers["Authorization"] == "Bearer dicty-jwt-sample-token"
+                print("[PASS] Deepgram Nova-3 Dicty Cloud routing verified!")
             
         finally:
             if os.path.exists(dummy_wav):
@@ -82,6 +102,7 @@ if __name__ == "__main__":
     asyncio.run(test_routing())
 
 def test_credit_deduction_check():
+    """Verify compute credit deduction is enabled for Dicty Cloud and bypassed for OpenRouter."""
     from unittest.mock import patch, MagicMock
     from model_manager import ModelManager
     
@@ -106,5 +127,40 @@ def test_credit_deduction_check():
     assert credits_used == 10, f"Expected 10 credits used, got {credits_used}"
     print("[PASS] Credit calculation correctly active when llm_provider == 'dicty_cloud'!")
 
+def test_resolve_speech_credentials():
+    """Verify speech credential resolution across Dicty Cloud, OpenAI, and OpenRouter routes."""
+    from services.pipeline import resolve_speech_credentials
+    from unittest.mock import patch
+
+    # 1. Dicty Cloud route with personal OpenRouter LLM key: gets JWT, omits LLM key from speech credentials
+    with patch("auth.SecureAuthManager.get_jwt_token", return_value="jwt-test-token"):
+        creds = resolve_speech_credentials(
+            route="dicty_cloud",
+            openai_api_key="sk-openai-key",
+            llm_api_key="sk-or-personal-key"
+        )
+        assert creds["openai_api_key"] == "jwt-test-token"
+        assert creds["openrouter_key"] is None
+
+    # 2. Direct OpenAI route: gets openai_api_key, omits openrouter_key
+    creds_openai = resolve_speech_credentials(
+        route="openai",
+        openai_api_key="sk-openai-direct",
+        llm_api_key="sk-or-key"
+    )
+    assert creds_openai["openai_api_key"] == "sk-openai-direct"
+    assert creds_openai["openrouter_key"] is None
+
+    # 3. OpenRouter speech route: gets openrouter_key
+    creds_or = resolve_speech_credentials(
+        route="openrouter",
+        openai_api_key="sk-openai-direct",
+        llm_api_key="sk-or-key"
+    )
+    assert creds_or["openai_api_key"] is None
+    assert creds_or["openrouter_key"] == "sk-or-key"
+    print("[PASS] resolve_speech_credentials verified!")
+
 if __name__ == "__main__":
     test_credit_deduction_check()
+    test_resolve_speech_credentials()

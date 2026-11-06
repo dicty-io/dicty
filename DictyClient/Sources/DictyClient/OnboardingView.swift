@@ -132,7 +132,7 @@ struct OnboardingView: View {
         }
         let isDownloaded = engineClient.models.first(where: { $0.id == starterModel })?.is_downloaded == true
         let isDownloading = engineClient.isDownloading && engineClient.downloadProgress[starterModel] != nil
-        if !isDownloaded && !isDownloading && !engineClient.models.isEmpty {
+        if !isDownloaded && !isDownloading {
             engineClient.downloadModel(id: starterModel)
         }
     }
@@ -249,6 +249,20 @@ struct PermissionsView: View {
                 }
             }
             
+            if !micAuthorized || !axAuthorized {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundColor(.orange)
+                    Text("Microphone and Accessibility are required to hear your voice and paste text into apps.")
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.85))
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.12))
+                .cornerRadius(8)
+            }
+            
             Spacer()
             
             Button(action: {
@@ -264,6 +278,16 @@ struct PermissionsView: View {
             }
             .buttonStyle(PlainButtonStyle())
             .padding(.bottom, 30)
+        }
+        .onAppear {
+            let status = AVCaptureDevice.authorizationStatus(for: .audio)
+            if status == .notDetermined {
+                AVCaptureDevice.requestAccess(for: .audio) { granted in
+                    DispatchQueue.main.async {
+                        self.micAuthorized = granted
+                    }
+                }
+            }
         }
         .onReceive(timer) { _ in
             axAuthorized = AXIsProcessTrusted()
@@ -413,8 +437,12 @@ struct ModelSelectionView: View {
         engineClient.models.first(where: { $0.id == targetLocalModel })?.is_downloaded == true
     }
     
+    private var isCloudSelection: Bool {
+        userSelection == "deepgram/nova-3" || userSelection == "openai/whisper-1"
+    }
+
     private var isSelectionReady: Bool {
-        if userSelection == "openai/whisper-1" {
+        if isCloudSelection {
             return engineClient.isLoggedIn
         }
         return isTargetModelDownloaded || engineClient.isModelReady()
@@ -517,9 +545,9 @@ struct ModelSelectionView: View {
                             HStack {
                                 Image(systemName: "cpu")
                                     .font(.system(size: 24))
-                                    .foregroundColor(userSelection != "openai/whisper-1" ? .white : .gray)
+                                    .foregroundColor(!isCloudSelection ? .white : .gray)
                                 Spacer()
-                                if userSelection != "openai/whisper-1" {
+                                if !isCloudSelection {
                                     Image(systemName: "checkmark.circle.fill")
                                         .foregroundColor(Color.sageGreen)
                                 }
@@ -549,12 +577,21 @@ struct ModelSelectionView: View {
                                         .foregroundColor(.white.opacity(0.9))
                                 } else if engineClient.isDownloading && engineClient.downloadProgress[targetLocalModel] != nil {
                                     let prog = engineClient.downloadProgress[targetLocalModel] ?? 0.0
-                                    ProgressView()
-                                        .scaleEffect(0.6)
-                                        .frame(width: 14, height: 14)
-                                    Text("Downloading \(Int(prog))%")
-                                        .font(.caption2)
-                                        .foregroundColor(.white.opacity(0.9))
+                                    if prog < 0 {
+                                        Image(systemName: "arrow.clockwise")
+                                            .font(.caption2)
+                                            .foregroundColor(.orange)
+                                        Text("\(modelName) • Retry")
+                                            .font(.caption2)
+                                            .foregroundColor(.orange)
+                                    } else {
+                                        ProgressView()
+                                            .scaleEffect(0.6)
+                                            .frame(width: 14, height: 14)
+                                        Text("Downloading \(Int(prog))%")
+                                            .font(.caption2)
+                                            .foregroundColor(.white.opacity(0.9))
+                                    }
                                 } else {
                                     Image(systemName: "arrow.down.circle")
                                         .font(.caption2)
@@ -571,10 +608,10 @@ struct ModelSelectionView: View {
                         }
                         .padding(14)
                         .frame(maxWidth: .infinity, maxHeight: 150)
-                        .background(userSelection != "openai/whisper-1" ? Color.dictyBlue.opacity(0.4) : Color.white.opacity(0.04))
+                        .background(!isCloudSelection ? Color.dictyBlue.opacity(0.4) : Color.white.opacity(0.04))
                         .overlay(
                             RoundedRectangle(cornerRadius: 14)
-                                .stroke(userSelection != "openai/whisper-1" ? Color.dictyBlue : Color.white.opacity(0.1), lineWidth: 2)
+                                .stroke(!isCloudSelection ? Color.dictyBlue : Color.white.opacity(0.1), lineWidth: 2)
                         )
                         .cornerRadius(14)
                     }
@@ -582,16 +619,19 @@ struct ModelSelectionView: View {
                     
                     // Dicty Cloud Card
                     Button(action: {
-                        userSelection = "openai/whisper-1"
-                        engineClient.setActiveModel(id: "openai/whisper-1")
+                        userSelection = "deepgram/nova-3"
+                        engineClient.setActiveModel(id: "deepgram/nova-3")
+                        if engineClient.isLoggedIn {
+                            UserDefaults.standard.set("dicty_cloud", forKey: "llmProvider")
+                        }
                     }) {
                         VStack(alignment: .leading, spacing: 10) {
                             HStack {
                                 Image(systemName: "cloud")
                                     .font(.system(size: 24))
-                                    .foregroundColor(userSelection == "openai/whisper-1" ? .white : .gray)
+                                    .foregroundColor(isCloudSelection ? .white : .gray)
                                 Spacer()
-                                if userSelection == "openai/whisper-1" {
+                                if isCloudSelection {
                                     Image(systemName: "checkmark.circle.fill")
                                         .foregroundColor(Color.sageGreen)
                                 }
@@ -601,7 +641,7 @@ struct ModelSelectionView: View {
                                 Text("Dicty Cloud AI")
                                     .font(.system(size: 15, weight: .semibold))
                                     .foregroundColor(.white)
-                                Text("Whisper Large-v3. Highest accuracy across all languages.")
+                                Text("Deepgram Nova-3. Real-time streaming speech recognition (<100ms latency).")
                                     .font(.caption)
                                     .foregroundColor(.gray)
                                     .lineLimit(2)
@@ -649,10 +689,10 @@ struct ModelSelectionView: View {
                         }
                         .padding(14)
                         .frame(maxWidth: .infinity, maxHeight: 150)
-                        .background(userSelection == "openai/whisper-1" ? Color.dictyBlue.opacity(0.4) : Color.white.opacity(0.04))
+                        .background(isCloudSelection ? Color.dictyBlue.opacity(0.4) : Color.white.opacity(0.04))
                         .overlay(
                             RoundedRectangle(cornerRadius: 14)
-                                .stroke(userSelection == "openai/whisper-1" ? Color.dictyBlue : Color.white.opacity(0.1), lineWidth: 2)
+                                .stroke(isCloudSelection ? Color.dictyBlue : Color.white.opacity(0.1), lineWidth: 2)
                         )
                         .cornerRadius(14)
                     }
@@ -664,28 +704,41 @@ struct ModelSelectionView: View {
             
             // Bottom Action Button
             Button(action: {
-                if userSelection == "openai/whisper-1" && !engineClient.isLoggedIn {
+                if isCloudSelection && !engineClient.isLoggedIn {
                     showLoginSheet = true
                 } else {
+                    let progress = engineClient.downloadProgress[targetLocalModel] ?? 0.0
+                    if !isCloudSelection && progress < 0 {
+                        ensureModelDownloaded(id: targetLocalModel)
+                        return
+                    }
+                    if isCloudSelection && engineClient.isLoggedIn {
+                        UserDefaults.standard.set("dicty_cloud", forKey: "llmProvider")
+                    }
                     engineClient.setActiveModel(id: userSelection)
                     currentStep += 1
                 }
             }) {
-                if userSelection != "openai/whisper-1" && !isSelectionReady {
+                if !isCloudSelection && !isSelectionReady {
                     let progress = engineClient.downloadProgress[targetLocalModel] ?? 0.0
                     HStack {
-                        ProgressView()
-                            .controlSize(.small)
-                            .padding(.trailing, 4)
-                        Text(progress > 0 ? "Downloading model... \(Int(progress))%" : "Preparing model download...")
+                        if progress < 0 {
+                            Image(systemName: "arrow.clockwise")
+                            Text("Download failed. Click to retry")
+                        } else {
+                            ProgressView()
+                                .controlSize(.small)
+                                .padding(.trailing, 4)
+                            Text(progress > 0 ? "Downloading model... \(Int(progress))%" : "Preparing model download...")
+                        }
                     }
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color.dictyBlue.opacity(0.5))
+                    .background(progress < 0 ? Color.orange.opacity(0.85) : Color.dictyBlue.opacity(0.5))
                     .cornerRadius(12)
-                } else if userSelection == "openai/whisper-1" && !engineClient.isLoggedIn {
+                } else if isCloudSelection && !engineClient.isLoggedIn {
                     HStack {
                         Image(systemName: "person.crop.circle.badge.plus")
                         Text("Sign In to Activate Dicty Cloud")
@@ -707,7 +760,7 @@ struct ModelSelectionView: View {
                 }
             }
             .buttonStyle(PlainButtonStyle())
-            .disabled(userSelection != "openai/whisper-1" && !isSelectionReady)
+            .disabled(!isCloudSelection && !isSelectionReady && (engineClient.downloadProgress[targetLocalModel] ?? 0.0) >= 0)
             .padding(.bottom, 24)
         }
         .sheet(isPresented: $showLoginSheet) {
@@ -722,8 +775,9 @@ struct ModelSelectionView: View {
         }
         .onChange(of: engineClient.isLoggedIn) { loggedIn in
             if loggedIn {
-                userSelection = "openai/whisper-1"
-                engineClient.setActiveModel(id: "openai/whisper-1")
+                userSelection = "deepgram/nova-3"
+                UserDefaults.standard.set("dicty_cloud", forKey: "llmProvider")
+                engineClient.setActiveModel(id: "deepgram/nova-3")
             }
         }
     }
@@ -738,8 +792,8 @@ struct ModelSelectionView: View {
             selectedLanguage = curLang
         }
         
-        if engineClient.activeModel == "openai/whisper-1" && engineClient.isLoggedIn {
-            userSelection = "openai/whisper-1"
+        if (engineClient.activeModel == "deepgram/nova-3" || engineClient.activeModel == "openai/whisper-1") && engineClient.isLoggedIn {
+            userSelection = "deepgram/nova-3"
         } else {
             userSelection = targetLocalModel
             engineClient.setActiveModel(id: targetLocalModel)

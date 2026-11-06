@@ -59,6 +59,11 @@ struct ModelsLibraryView: View {
     @AppStorage("selectedTranslationModel") private var selectedTranslationModel: String = ""
     
     @State private var languageSwitchNotice: String? = nil
+    @State private var cloudModelNotice: String? = nil
+    @State private var showCloudModelAlert = false
+    @State private var cloudModelAlertTitle = ""
+    @State private var cloudModelAlertMessage = ""
+    @State private var cloudModelNeedsSignIn = false
     @StateObject private var modesStore = ModesStore()
     @State private var chooseModelsExpanded: Bool = false
     @State private var didInitChooseModels = false
@@ -326,6 +331,92 @@ struct ModelsLibraryView: View {
         }
     }
     
+    private var cloudModelAlert: Alert {
+        Alert(
+            title: Text(cloudModelAlertTitle),
+            message: Text(cloudModelAlertMessage),
+            primaryButton: .default(Text(cloudModelNeedsSignIn ? "Sign In" : "Manage Account")) {
+                WindowManager.openSettingsWindow(engineClient: engineClient, tabIndex: 11)
+            },
+            secondaryButton: .default(Text("Add API Key")) {
+                WindowManager.openSettingsWindow(engineClient: engineClient, tabIndex: 6)
+            }
+        )
+    }
+
+    private func onAppearSetup() {
+        engineClient.fetchModels()
+        if !didInitChooseModels {
+            chooseModelsExpanded = hasCustomizedModel
+            didInitChooseModels = true
+        }
+        if !canUseDictyCloud && llmProvider == "dicty_cloud" {
+            llmProvider = "openrouter"
+        }
+        let needsTranslationModel = selectedTranslationModel.isEmpty || selectedTranslationModel == "none"
+        if translationMethod == "cloud" && needsTranslationModel && !llmModel.isEmpty {
+            selectedTranslationModel = llmModel
+        }
+    }
+
+    private func activateCloudVoiceModel(_ model: DictyModel) {
+        let id = model.id.lowercased()
+        let directKey: String
+        let providerName: String
+        if id.contains("deepgram") {
+            directKey = SecretsManager.readSecret(forKey: "deepgramApiKey") ?? ""
+            providerName = "Deepgram"
+        } else if id.contains("groq") {
+            directKey = SecretsManager.readSecret(forKey: "groqApiKey") ?? ""
+            providerName = "Groq"
+        } else if id.contains("elevenlabs") {
+            directKey = SecretsManager.readSecret(forKey: "elevenlabsApiKey") ?? ""
+            providerName = "ElevenLabs"
+        } else if id.contains("openai") {
+            directKey = SecretsManager.readSecret(forKey: "openaiApiKey") ?? ""
+            providerName = "OpenAI"
+        } else {
+            directKey = ""
+            providerName = "Dicty Cloud"
+        }
+
+        if !directKey.isEmpty {
+            engineClient.setActiveModel(id: model.id)
+            return
+        }
+
+        if canUseDictyCloud {
+            if llmProvider != "dicty_cloud" {
+                llmProvider = "dicty_cloud"
+                UserDefaults.standard.set("dicty_cloud", forKey: "llmProvider")
+                withAnimation {
+                    cloudModelNotice = "Enabled Dicty Cloud routing for \(model.name)."
+                }
+                Task {
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                    await MainActor.run {
+                        withAnimation {
+                            if cloudModelNotice == "Enabled Dicty Cloud routing for \(model.name)." {
+                                cloudModelNotice = nil
+                            }
+                        }
+                    }
+                }
+            }
+            engineClient.setActiveModel(id: model.id)
+        } else if engineClient.isLoggedIn {
+            cloudModelAlertTitle = "\(model.name) Requires Cloud Access"
+            cloudModelAlertMessage = "\(model.name) requires an active Pro subscription or compute credits on Dicty Cloud, or your own \(providerName) API key."
+            cloudModelNeedsSignIn = false
+            showCloudModelAlert = true
+        } else {
+            cloudModelAlertTitle = "Sign In Required for \(model.name)"
+            cloudModelAlertMessage = "\(model.name) requires either signing in to Dicty Cloud or adding your own \(providerName) API key in Settings."
+            cloudModelNeedsSignIn = true
+            showCloudModelAlert = true
+        }
+    }
+    
     private var languageBarContent: some View {
         HStack(alignment: .center, spacing: 8) {
             HStack(spacing: 6) {
@@ -508,7 +599,7 @@ struct ModelsLibraryView: View {
 
     @ViewBuilder
     private var languageNoticeView: some View {
-        if let notice = languageSwitchNotice {
+        if let notice = languageSwitchNotice ?? cloudModelNotice {
             HStack(spacing: 6) {
                 Image(systemName: "info.circle.fill")
                     .foregroundColor(.appAccent)
@@ -516,7 +607,12 @@ struct ModelsLibraryView: View {
                     .font(.system(.caption, design: .rounded).weight(.medium))
                     .foregroundColor(.primary)
                 Spacer()
-                Button(action: { withAnimation { languageSwitchNotice = nil } }) {
+                Button(action: {
+                    withAnimation {
+                        languageSwitchNotice = nil
+                        cloudModelNotice = nil
+                    }
+                }) {
                     Image(systemName: "xmark")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundColor(.secondary)
@@ -617,9 +713,7 @@ struct ModelsLibraryView: View {
                         isActive: engineClient.activeModel == model.id,
                         onActivate: {
                             hasCustomizedModel = true
-                            if engineClient.canUseCloud {
-                                engineClient.setActiveModel(id: model.id)
-                            }
+                            activateCloudVoiceModel(model)
                         }
                     )
                 }
@@ -917,12 +1011,17 @@ struct ModelsLibraryView: View {
                 engineClient.transcriptionLanguage = selectedCode
             }
         }
+        .alert(isPresented: $showCloudModelAlert) {
+            cloudModelAlert
+        }
         .onChange(of: llmModel) { _, newModel in
             if !newModel.isEmpty && (newModel.contains("/") || llmProvider != "local") {
                 lastCloudTextModel = newModel
             }
             ProfileManager.shared.updateActiveProfileModels(llmModel: newModel)
-            if translationMethod == "cloud" && (selectedTranslationModel.isEmpty || !cloudTextModels.contains(where: { $0.id == selectedTranslationModel })) {
+            let isCloud = translationMethod == "cloud"
+            let needsModel = selectedTranslationModel.isEmpty || selectedTranslationModel == "none"
+            if isCloud && needsModel {
                 selectedTranslationModel = newModel
             }
         }
@@ -931,7 +1030,8 @@ struct ModelsLibraryView: View {
         }
         .onChange(of: translationMethod) { _, newMethod in
             ProfileManager.shared.updateActiveProfileModels(translationMethod: newMethod)
-            if newMethod == "cloud" && (selectedTranslationModel.isEmpty || selectedTranslationModel == "none") && !llmModel.isEmpty {
+            let needsModel = selectedTranslationModel.isEmpty || selectedTranslationModel == "none"
+            if newMethod == "cloud" && needsModel && !llmModel.isEmpty {
                 selectedTranslationModel = llmModel
             }
         }
@@ -955,17 +1055,7 @@ struct ModelsLibraryView: View {
             ProfileManager.shared.updateActiveProfileModels(enableAutoCompletion: newAuto)
         }
         .onAppear {
-            engineClient.fetchModels()
-            if !didInitChooseModels {
-                chooseModelsExpanded = hasCustomizedModel
-                didInitChooseModels = true
-            }
-            if !canUseDictyCloud && llmProvider == "dicty_cloud" {
-                llmProvider = "openrouter"
-            }
-            if translationMethod == "cloud" && (selectedTranslationModel.isEmpty || selectedTranslationModel == "none") && !llmModel.isEmpty {
-                selectedTranslationModel = llmModel
-            }
+            onAppearSetup()
         }
         .task {
             await modesStore.refresh()
