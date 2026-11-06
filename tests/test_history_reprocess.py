@@ -88,6 +88,43 @@ class TestHistoryReprocess(unittest.TestCase):
             _, kwargs = mock_trans.call_args
             self.assertEqual(kwargs.get("existing_record_id"), self.test_id)
 
+    def test_reprocess_full_retranscribe_with_model_and_language(self):
+        with open(self.dummy_record["audio_file"], "w") as f:
+            f.write("DUMMY AUDIO CONTENT")
+
+        with patch("services.pipeline.process_transcription", new_callable=AsyncMock) as mock_trans:
+            mock_trans.return_value = {"status": "success", "text": "Translated Spanish audio"}
+            resp = self.client.post(f"/history/reprocess/{self.test_id}", json={
+                "mode": "dictation",
+                "format_style": "raw",
+                "retranscribe_audio": True,
+                "model_id": "deepgram/nova-3",
+                "speech_route": "deepgram",
+                "language": "es",
+                "translate_to_english": True
+            })
+            self.assertEqual(resp.status_code, 200)
+            mock_trans.assert_called_once()
+            _, kwargs = mock_trans.call_args
+            self.assertEqual(kwargs.get("model_id"), "deepgram/nova-3")
+            self.assertEqual(kwargs.get("speech_route"), "deepgram")
+            self.assertEqual(kwargs.get("language"), "es")
+            self.assertTrue(kwargs.get("translate_to_english"))
+
+    def test_reprocess_fast_reformat_with_translate_to_english(self):
+        with patch("llm_service.LLMService.generate", new_callable=AsyncMock) as mock_gen:
+            mock_gen.return_value = "Hello world in English"
+            resp = self.client.post(f"/history/reprocess/{self.test_id}", json={
+                "mode": "dictation",
+                "format_style": "raw",
+                "retranscribe_audio": False,
+                "translate_to_english": True
+            })
+            self.assertEqual(resp.status_code, 200)
+            mock_gen.assert_called_once()
+            _, kwargs = mock_gen.call_args
+            self.assertIn("Translate the entire text accurately into fluent English", kwargs.get("system_prompt", ""))
+
 
 if __name__ == "__main__":
     unittest.main()
