@@ -383,16 +383,20 @@ class TranscribeService:
         self.whisper_cpp_path = None
 
         # 1. Check if we are running inside a packaged PyInstaller app
-        if hasattr(sys, '_MEIPASS'):
-            packaged_bin = os.path.join(sys._MEIPASS, "bin", "whisper-cli")
-            packaged_server_bin = os.path.join(sys._MEIPASS, "bin", "whisper-server")
-            if os.path.exists(packaged_server_bin):
-                os.chmod(packaged_server_bin, 0o755)
-            if os.path.exists(packaged_bin):
-                # Ensure it's executable
-                os.chmod(packaged_bin, 0o755)
-                self.whisper_cpp_path = packaged_bin
-                return self.whisper_cpp_path
+        base_dir = getattr(sys, '_MEIPASS', None) or (os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else None)
+        if base_dir:
+            ext = ".exe" if sys.platform == "win32" else ""
+            for name in (f"whisper-cli{ext}", "whisper-cli"):
+                for sub in ("bin", ""):
+                    packaged_bin = os.path.join(base_dir, sub, name) if sub else os.path.join(base_dir, name)
+                    if os.path.exists(packaged_bin):
+                        if hasattr(os, "chmod") and sys.platform != "win32":
+                            try:
+                                os.chmod(packaged_bin, 0o755)
+                            except Exception:
+                                pass
+                        self.whisper_cpp_path = packaged_bin
+                        return self.whisper_cpp_path
                 
         # 2. Check local source directory
         local_bin_paths = [

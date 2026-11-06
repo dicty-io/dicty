@@ -21,9 +21,24 @@ fi
 WHISPER_DIR="bin/whisper.cpp"
 TARGET_BIN_DIR="$WHISPER_DIR/build/bin"
 
-# 2. Check if pre-compiled binaries are already cached and statically linked
+# 2. Check if pre-compiled binaries are already present in build tree
+if [ -f "$TARGET_BIN_DIR/whisper-cli" ] && [ -f "$TARGET_BIN_DIR/whisper-server" ]; then
+    if command -v otool >/dev/null 2>&1 && otool -L "$TARGET_BIN_DIR/whisper-cli" 2>/dev/null | grep -q "@rpath/libwhisper"; then
+        echo "[!] Stale dynamic whisper binaries detected in $TARGET_BIN_DIR. Removing to force static recompilation..."
+        rm -f "$TARGET_BIN_DIR/whisper-cli" "$TARGET_BIN_DIR/whisper-server"
+    else
+        echo "[+] Reusing existing static whisper.cpp binaries in: $TARGET_BIN_DIR"
+        chmod +x "$TARGET_BIN_DIR/whisper-cli" "$TARGET_BIN_DIR/whisper-server"
+        mkdir -p "$CACHE_DIR"
+        cp -f "$TARGET_BIN_DIR/whisper-cli" "$CACHE_DIR/" 2>/dev/null || true
+        cp -f "$TARGET_BIN_DIR/whisper-server" "$CACHE_DIR/" 2>/dev/null || true
+        exit 0
+    fi
+fi
+
+# 3. Check if pre-compiled binaries are cached in persistent runner cache
 if [ -f "$CACHE_DIR/whisper-cli" ] && [ -f "$CACHE_DIR/whisper-server" ]; then
-    if otool -L "$CACHE_DIR/whisper-cli" 2>/dev/null | grep -q "@rpath/libwhisper"; then
+    if command -v otool >/dev/null 2>&1 && otool -L "$CACHE_DIR/whisper-cli" 2>/dev/null | grep -q "@rpath/libwhisper"; then
         echo "[!] Stale dynamic whisper cache detected. Removing to force static recompilation..."
         rm -f "$CACHE_DIR/whisper-cli" "$CACHE_DIR/whisper-server"
     else
@@ -69,14 +84,18 @@ else
     fi
 fi
 
-if [ ! -d "$WHISPER_DIR" ]; then
-    if [ -d "whisper.cpp" ]; then
+if [ ! -f "$WHISPER_DIR/CMakeLists.txt" ]; then
+    if [ -f "whisper.cpp/CMakeLists.txt" ]; then
         WHISPER_DIR="whisper.cpp"
     else
-        echo "[-] Error: whisper.cpp source not found at $WHISPER_DIR."
-        echo "[*] Cloning whisper.cpp..."
-        mkdir -p bin
-        git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git "$WHISPER_DIR"
+        echo "[-] whisper.cpp source not found at $WHISPER_DIR."
+        echo "[*] Cloning whisper.cpp repository..."
+        TMP_CLONE="$(mktemp -d /tmp/whisper_src_XXXXXX)"
+        git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git "$TMP_CLONE"
+        mkdir -p "$WHISPER_DIR"
+        cp -R "$TMP_CLONE/"* "$WHISPER_DIR/" 2>/dev/null || true
+        cp -R "$TMP_CLONE/".[!.]* "$WHISPER_DIR/" 2>/dev/null || true
+        rm -rf "$TMP_CLONE"
     fi
 fi
 
