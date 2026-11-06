@@ -242,6 +242,9 @@ jobs:
       - name: Check Rust Compilation
         run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
 
+      - name: Verify Tauri Package Versions Match
+        run: npm run check-versions
+
   # =========================================================================
   # 5. SWIFT TEST SUITE (nightly / manual only)
   # Kept off the PR path: the suite has a history of runner flakiness, and a
