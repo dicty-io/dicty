@@ -1490,9 +1490,6 @@ class EngineClient: ObservableObject {
         if let monitor = localMonitor { NSEvent.removeMonitor(monitor) }
         if let monitor = localFlagsMonitor { NSEvent.removeMonitor(monitor) }
         
-        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
-        
         let standardModifierMask: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
         
         let targetModifiers = NSEvent.ModifierFlags(rawValue: UInt(hotkeyModifiers)).intersection(standardModifierMask)

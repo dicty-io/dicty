@@ -266,24 +266,6 @@ struct PermissionsView: View {
             Spacer()
             
             Button(action: {
-                if !micAuthorized {
-                    let status = AVCaptureDevice.authorizationStatus(for: .audio)
-                    if status == .notDetermined {
-                        AVCaptureDevice.requestAccess(for: .audio) { granted in
-                            DispatchQueue.main.async {
-                                self.micAuthorized = granted
-                            }
-                        }
-                    } else if status == .denied || status == .restricted {
-                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-                }
-                if !axAuthorized {
-                    let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-                    _ = AXIsProcessTrustedWithOptions(options)
-                }
                 currentStep += 1
             }) {
                 Text("Continue")
@@ -305,10 +287,6 @@ struct PermissionsView: View {
                         self.micAuthorized = granted
                     }
                 }
-            }
-            if !AXIsProcessTrusted() {
-                let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-                _ = AXIsProcessTrustedWithOptions(options)
             }
         }
         .onReceive(timer) { _ in
