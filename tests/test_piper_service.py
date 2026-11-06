@@ -8,10 +8,12 @@ from tts_service import TTSService
 
 class TestPiperService(unittest.TestCase):
     def setUp(self):
+        """Initialize test instance of PiperService and TTSService."""
         self.service = PiperService()
         self.tts = TTSService()
 
     def test_piper_catalog(self):
+        """Verify supported voices catalog contains German and Russian voices."""
         voices = self.service.get_supported_voices()
         self.assertGreaterEqual(len(voices), 4)
         langs = {v["lang"] for v in voices}
@@ -23,6 +25,7 @@ class TestPiperService(unittest.TestCase):
             self.assertIn("installed", v)
 
     def test_piper_german_synthesis(self):
+        """Verify German speech synthesis produces valid WAV audio."""
         try:
             import piper
         except ModuleNotFoundError as e:
@@ -50,6 +53,7 @@ class TestPiperService(unittest.TestCase):
             self.assertGreater(duration, 0.5)
 
     def test_piper_russian_synthesis(self):
+        """Verify Russian speech synthesis produces valid WAV audio."""
         try:
             import piper
         except ModuleNotFoundError as e:
@@ -76,6 +80,7 @@ class TestPiperService(unittest.TestCase):
             self.assertGreater(duration, 0.5)
 
     def test_tts_service_piper_dispatch(self):
+        """Verify TTSService routes synthesis to Piper backend when voice prefix is piper:."""
         try:
             import piper
         except ModuleNotFoundError as e:

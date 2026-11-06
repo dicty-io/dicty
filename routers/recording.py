@@ -232,7 +232,8 @@ async def stop_recording(
         mode, mode_id, mode_style, correction_location, self_correction_bool, self_correction_model
     )
     
-    if not recorder.is_recording and file is None and not audio_file_path:
+    was_recording = recorder.is_recording
+    if not was_recording and file is None and not audio_file_path:
         return {"status": "not_recording"}
     
     play_stop_chime()
@@ -431,9 +432,10 @@ async def stop_recording(
             mode_id=resolved_mode_id,
             mode_reason=resolved_mode_reason,
             skip_cloud=skip_cloud_fallback,
-            speech_route=speech_route or getattr(recorder, "last_cloud_route", "") or llm_provider
+            speech_route=speech_route or (getattr(recorder, "last_cloud_route", "") if was_recording else "") or llm_provider
         )
     finally:
+        recorder.last_cloud_route = ""
         if temp_mixed and os.path.exists(temp_mixed):
             try: os.remove(temp_mixed)
             except: pass

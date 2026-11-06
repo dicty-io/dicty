@@ -347,9 +347,17 @@ async def transcribe_local_file(
         
         # Transcribe
         effective_speech_route = speech_route if speech_route else llm_provider
+        dicty_cloud_jwt = None
+        if effective_speech_route == "dicty_cloud":
+            try:
+                from auth import SecureAuthManager
+                dicty_cloud_jwt = SecureAuthManager.get_jwt_token()
+            except Exception:
+                pass
+
         raw_text = await transcriber.transcribe(
             temp_path,
-            openai_api_key=openai_api_key if effective_speech_route == "openai" else None,
+            openai_api_key=dicty_cloud_jwt if effective_speech_route == "dicty_cloud" else (openai_api_key if effective_speech_route == "openai" else None),
             language=language,
             translate_to_english=translate_bool,
             enable_auto_completion=auto_complete_bool,

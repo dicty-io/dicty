@@ -242,9 +242,10 @@ async def process_transcription(
     whisper_translate = (translation_method == "built_in") or translate_to_english
     transcriber = TranscribeService()
     # Let TranscribeService auto-resolve the binary and model paths internally
-    # rather than strictly relying on .env which may be empty.
-    if os.getenv("WHISPER_CPP_PATH"):
-        transcriber.whisper_cpp_path = os.getenv("WHISPER_CPP_PATH")
+    # rather than strictly relying on .env which may be empty or point to a removed file.
+    env_cpp = os.getenv("WHISPER_CPP_PATH")
+    if env_cpp and os.path.exists(env_cpp):
+        transcriber.whisper_cpp_path = env_cpp
     else:
         transcriber.whisper_cpp_path = transcriber._ensure_whisper_cpp_binary()
         
@@ -302,11 +303,19 @@ async def process_transcription(
         set_status("Transcribing meeting audio tracks...")
         tasks = []
         has_mic = bool(mic_audio_path and os.path.exists(mic_audio_path) and os.path.getsize(mic_audio_path) > 100)
+        dicty_cloud_jwt = None
+        if effective_speech_route == "dicty_cloud":
+            try:
+                from auth import SecureAuthManager
+                dicty_cloud_jwt = SecureAuthManager.get_jwt_token()
+            except Exception:
+                pass
+
         if has_mic:
             tasks.append(transcriber.transcribe_segments(
                 mic_audio_path,
                 vocab_data=vocab_data,
-                openai_api_key=openai_api_key if effective_speech_route == "openai" else None,
+                openai_api_key=dicty_cloud_jwt if effective_speech_route == "dicty_cloud" else (openai_api_key if effective_speech_route == "openai" else None),
                 openrouter_key=llm_api_key if effective_speech_route == "openrouter" else None,
                 language=language,
                 translate_to_english=whisper_translate,
@@ -320,7 +329,7 @@ async def process_transcription(
         tasks.append(transcriber.transcribe_segments(
             audio_path,
             vocab_data=vocab_data,
-            openai_api_key=openai_api_key if effective_speech_route == "openai" else None,
+            openai_api_key=dicty_cloud_jwt if effective_speech_route == "dicty_cloud" else (openai_api_key if effective_speech_route == "openai" else None),
             openrouter_key=llm_api_key if effective_speech_route == "openrouter" else None,
             language=language,
             translate_to_english=whisper_translate,
@@ -399,10 +408,18 @@ async def process_transcription(
     else:
         try:
             set_status("Transcribing meeting audio..." if is_meeting_mode else "Transcribing audio...")
+            dicty_cloud_jwt = None
+            if effective_speech_route == "dicty_cloud":
+                try:
+                    from auth import SecureAuthManager
+                    dicty_cloud_jwt = SecureAuthManager.get_jwt_token()
+                except Exception:
+                    pass
+
             raw_text = await transcriber.transcribe(
                 audio_path, 
                 vocab_data, 
-                openai_api_key=openai_api_key if effective_speech_route == "openai" else None, 
+                openai_api_key=dicty_cloud_jwt if effective_speech_route == "dicty_cloud" else (openai_api_key if effective_speech_route == "openai" else None), 
                 openrouter_key=llm_api_key if effective_speech_route == "openrouter" else None, 
                 language=language, 
                 translate_to_english=whisper_translate, 

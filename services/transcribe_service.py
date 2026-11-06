@@ -380,6 +380,7 @@ class TranscribeService:
         # 0. Check if WHISPER_CPP_PATH from env exists
         if self.whisper_cpp_path and os.path.exists(self.whisper_cpp_path):
             return self.whisper_cpp_path
+        self.whisper_cpp_path = None
 
         # 1. Check if we are running inside a packaged PyInstaller app
         if hasattr(sys, '_MEIPASS'):
@@ -411,10 +412,8 @@ class TranscribeService:
                 self.whisper_cpp_path = os.path.abspath(p)
                 return self.whisper_cpp_path
                 
-        # 3. If missing from local paths and compilation not disabled, attempt auto-compiling once in background/prewarm
-        if not self.whisper_cpp_path:
-            return None
-        return self.whisper_cpp_path
+        # 3. If missing from local paths and compilation not disabled, return None
+        return None
 
     _compile_lock = threading.Lock()
     _compile_attempted = False
@@ -900,9 +899,7 @@ class TranscribeService:
             if not api_key:
                 try:
                     import auth
-                    session = auth.SecureAuthManager.get_session()
-                    if session and session.get("jwt_token"):
-                        api_key = session["jwt_token"]
+                    api_key = auth.SecureAuthManager.get_jwt_token()
                 except Exception:
                     pass
 

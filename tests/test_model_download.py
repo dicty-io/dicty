@@ -16,6 +16,7 @@ from services.model_manager import ModelManager
 
 class TestModelDownload(unittest.TestCase):
     def setUp(self):
+        """Set up isolated temporary directories for models and settings."""
         self.tmp_data = tempfile.mkdtemp()
         self.patch_data = patch("services.model_manager.DATA_DIR", self.tmp_data)
         self.patch_models = patch("services.model_manager.MODELS_DIR", os.path.join(self.tmp_data, "models"))
@@ -26,6 +27,7 @@ class TestModelDownload(unittest.TestCase):
         self.mm = ModelManager()
 
     def tearDown(self):
+        """Clean up temporary test directory and stop environment patches."""
         self.patch_settings.stop()
         self.patch_models.stop()
         self.patch_data.stop()
@@ -33,6 +35,7 @@ class TestModelDownload(unittest.TestCase):
         shutil.rmtree(self.tmp_data, ignore_errors=True)
 
     def test_prequantized_url_small_en(self):
+        """Verify prequantized URL mapping selects q5_1 for small.en."""
         url, quality = self.mm._prequantized_url(
             "small.en",
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
@@ -42,6 +45,7 @@ class TestModelDownload(unittest.TestCase):
         self.assertIn("ggml-small.en-q5_1.bin", url)
 
     def test_prequantized_url_non_quantized(self):
+        """Verify non-quantized f16 quality retains base Hugging Face URL."""
         url, quality = self.mm._prequantized_url(
             "small.en",
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",

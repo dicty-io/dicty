@@ -720,6 +720,7 @@ class ModelManager:
             timeout_config = httpx.Timeout(connect=30.0, read=120.0, write=60.0, pool=30.0)
 
             def _parse_approx_size(size_str: str) -> int:
+                """Parse a human-readable size string (e.g. '142 MB', '1.5 GB') into bytes."""
                 if not size_str:
                     return 0
                 s = size_str.strip().upper()

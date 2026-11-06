@@ -5,6 +5,7 @@ from transcribe_service import TranscribeService
 from model_manager import ModelManager
 
 async def test_routing():
+    """Verify cloud STT routing across OpenRouter, Groq, and Dicty Cloud with credentials."""
     ts = TranscribeService()
     
     print("Testing OpenRouter routing for nvidia/parakeet-tdt-0.6b-v3...")
@@ -100,6 +101,7 @@ if __name__ == "__main__":
     asyncio.run(test_routing())
 
 def test_credit_deduction_check():
+    """Verify compute credit deduction is enabled for Dicty Cloud and bypassed for OpenRouter."""
     from unittest.mock import patch, MagicMock
     from model_manager import ModelManager
     
