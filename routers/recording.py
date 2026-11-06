@@ -235,6 +235,12 @@ async def stop_recording(
     was_recording = recorder.is_recording
     if not was_recording and file is None and not audio_file_path:
         return {"status": "not_recording"}
+
+    # Snapshot speech route belonging to this recording session and immediately clear
+    # recorder.last_cloud_route so a subsequent recording does not have its route wiped.
+    snapshot_speech_route = speech_route or (getattr(recorder, "last_cloud_route", "") if was_recording else "") or llm_provider
+    if was_recording and hasattr(recorder, "last_cloud_route"):
+        recorder.last_cloud_route = ""
     
     play_stop_chime()
     t_start = time.perf_counter()
@@ -432,10 +438,9 @@ async def stop_recording(
             mode_id=resolved_mode_id,
             mode_reason=resolved_mode_reason,
             skip_cloud=skip_cloud_fallback,
-            speech_route=speech_route or (getattr(recorder, "last_cloud_route", "") if was_recording else "") or llm_provider
+            speech_route=snapshot_speech_route
         )
     finally:
-        recorder.last_cloud_route = ""
         if temp_mixed and os.path.exists(temp_mixed):
             try: os.remove(temp_mixed)
             except: pass

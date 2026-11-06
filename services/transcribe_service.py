@@ -897,11 +897,17 @@ class TranscribeService:
             url = f"{dicty_cloud_url}/v1/audio/transcriptions"
             api_key = override_key  # Dicty JWT Token
             if not api_key:
-                try:
-                    import auth
-                    api_key = auth.SecureAuthManager.get_jwt_token()
-                except Exception:
-                    pass
+                from urllib.parse import urlparse
+                parsed_cloud = urlparse(dicty_cloud_url)
+                is_loopback = parsed_cloud.hostname in ("127.0.0.1", "localhost")
+                if parsed_cloud.scheme == "https" or is_loopback:
+                    try:
+                        import auth
+                        api_key = auth.SecureAuthManager.get_jwt_token()
+                    except Exception as err:
+                        print(f"[!] Dicty Cloud token unavailable: {err}")
+                else:
+                    print(f"[!] Dicty Cloud token omitted: cleartext HTTP destination '{dicty_cloud_url}' is not allowed for stored credentials.")
 
             if not api_key:
                 # No valid Dicty token found! Fallback to OpenRouter if user has an OpenRouter key

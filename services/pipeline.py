@@ -25,8 +25,27 @@ from services.status import set_status
 from services.http_client import shared_http_client
 from services.whisper_server import start_whisper_server
 from services import whisper_server
+from typing import Optional, Dict, Any
 
 _LOCAL_PROVIDER_MARKERS = ("whisper-server", "whisper-cli", "faster-whisper", "openai-whisper", "VAD stream (local)")
+
+def resolve_speech_credentials(
+    route: str,
+    openai_api_key: Optional[str] = None,
+    llm_api_key: Optional[str] = None
+) -> Dict[str, Optional[str]]:
+    """Resolve authentication credentials for STT engines based on route."""
+    jwt = None
+    if route == "dicty_cloud":
+        try:
+            from auth import SecureAuthManager
+            jwt = SecureAuthManager.get_jwt_token()
+        except Exception as e:
+            print(f"[!] Dicty Cloud token unavailable: {e}")
+    return {
+        "openai_api_key": jwt if route == "dicty_cloud" else (openai_api_key if route == "openai" else None),
+        "openrouter_key": llm_api_key if route == "openrouter" else None,
+    }
 
 def _resolve_history_path(filename: str) -> str | None:
     base_dir = os.path.realpath(HISTORY_DIR)
@@ -303,20 +322,14 @@ async def process_transcription(
         set_status("Transcribing meeting audio tracks...")
         tasks = []
         has_mic = bool(mic_audio_path and os.path.exists(mic_audio_path) and os.path.getsize(mic_audio_path) > 100)
-        dicty_cloud_jwt = None
-        if effective_speech_route == "dicty_cloud":
-            try:
-                from auth import SecureAuthManager
-                dicty_cloud_jwt = SecureAuthManager.get_jwt_token()
-            except Exception:
-                pass
+        creds = resolve_speech_credentials(effective_speech_route, openai_api_key, llm_api_key)
 
         if has_mic:
             tasks.append(transcriber.transcribe_segments(
                 mic_audio_path,
                 vocab_data=vocab_data,
-                openai_api_key=dicty_cloud_jwt if effective_speech_route == "dicty_cloud" else (openai_api_key if effective_speech_route == "openai" else None),
-                openrouter_key=llm_api_key if effective_speech_route == "openrouter" else None,
+                openai_api_key=creds["openai_api_key"],
+                openrouter_key=creds["openrouter_key"],
                 language=language,
                 translate_to_english=whisper_translate,
                 enable_auto_completion=enable_auto_completion,
@@ -329,8 +342,8 @@ async def process_transcription(
         tasks.append(transcriber.transcribe_segments(
             audio_path,
             vocab_data=vocab_data,
-            openai_api_key=dicty_cloud_jwt if effective_speech_route == "dicty_cloud" else (openai_api_key if effective_speech_route == "openai" else None),
-            openrouter_key=llm_api_key if effective_speech_route == "openrouter" else None,
+            openai_api_key=creds["openai_api_key"],
+            openrouter_key=creds["openrouter_key"],
             language=language,
             translate_to_english=whisper_translate,
             enable_auto_completion=enable_auto_completion,
@@ -408,19 +421,13 @@ async def process_transcription(
     else:
         try:
             set_status("Transcribing meeting audio..." if is_meeting_mode else "Transcribing audio...")
-            dicty_cloud_jwt = None
-            if effective_speech_route == "dicty_cloud":
-                try:
-                    from auth import SecureAuthManager
-                    dicty_cloud_jwt = SecureAuthManager.get_jwt_token()
-                except Exception:
-                    pass
+            creds = resolve_speech_credentials(effective_speech_route, openai_api_key, llm_api_key)
 
             raw_text = await transcriber.transcribe(
                 audio_path, 
                 vocab_data, 
-                openai_api_key=dicty_cloud_jwt if effective_speech_route == "dicty_cloud" else (openai_api_key if effective_speech_route == "openai" else None), 
-                openrouter_key=llm_api_key if effective_speech_route == "openrouter" else None, 
+                openai_api_key=creds["openai_api_key"], 
+                openrouter_key=creds["openrouter_key"], 
                 language=language, 
                 translate_to_english=whisper_translate, 
                 enable_auto_completion=enable_auto_completion,
