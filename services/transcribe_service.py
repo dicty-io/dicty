@@ -8,6 +8,7 @@ import local_whisper
 import subprocess
 import shutil
 import multiprocessing
+import threading
 from urllib.parse import quote_plus
 from transcript_join import join_transcript_parts, normalize_whisper_text
 
@@ -410,59 +411,63 @@ class TranscribeService:
                 self.whisper_cpp_path = os.path.abspath(p)
                 return self.whisper_cpp_path
                 
-        # 3. If missing from local paths, attempt auto-downloading official pre-compiled binaries
-        auto_downloaded = self._download_whisper_cli()
-        if auto_downloaded and os.path.exists(auto_downloaded):
-            self.whisper_cpp_path = auto_downloaded
+        # 3. If missing from local paths, attempt auto-compiling native binary from source
+        compiled_bin = self._auto_compile_whisper()
+        if compiled_bin and os.path.exists(compiled_bin):
+            self.whisper_cpp_path = compiled_bin
             return self.whisper_cpp_path
 
-        # 4. If missing and cannot download, warn rather than crash engine startup
+        # 4. If compilation failed or unavailable, warn rather than crash engine startup
         print("[!] Warning: whisper-cli binary not found. Run ./scripts/compile_whisper.sh to compile local whisper.cpp.")
         return self.whisper_cpp_path
 
-    def _download_whisper_cli(self):
-        """
-        Auto-downloads pre-compiled whisper.cpp binaries from official upstream releases
-        into ~/.dicty_cache/whisper/ if missing (e.g. running from source or fresh clone).
-        """
-        import platform, zipfile, io, httpx
-        system = platform.system().lower()
-        machine = platform.machine().lower()
-        
-        target_dir = os.path.expanduser("~/.dicty_cache/whisper")
-        os.makedirs(target_dir, exist_ok=True)
-        target_cli = os.path.join(target_dir, "whisper-cli.exe" if system == "windows" else "whisper-cli")
-        if os.path.exists(target_cli):
-            return target_cli
+    _compile_lock = threading.Lock()
 
-        # Upstream whisper.cpp release assets for macOS (arm64 Metal, x86_64) and Windows
-        version = "v1.7.4"
-        if system == "darwin":
-            asset_name = "whisper-bin-arm64.zip" if machine in ("arm64", "aarch64") else "whisper-bin-x64.zip"
-        elif system == "windows":
-            asset_name = "whisper-bin-x64.zip"
-        else:
+    def _auto_compile_whisper(self):
+        """
+        Automatically compiles native whisper.cpp if running from source in development.
+        """
+        import subprocess
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        compile_script = os.path.join(project_root, "scripts", "compile_whisper.sh")
+        if not os.path.exists(compile_script):
             return None
 
-        url = f"https://github.com/ggerganov/whisper.cpp/releases/download/{version}/{asset_name}"
-        try:
-            print(f"[*] whisper-cli not found locally. Auto-downloading pre-compiled binary from {url}...")
-            timeout = httpx.Timeout(connect=15.0, read=90.0, write=30.0, pool=15.0)
-            resp = httpx.get(url, follow_redirects=True, timeout=timeout)
-            resp.raise_for_status()
-            with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
-                for member in zf.namelist():
-                    basename = os.path.basename(member)
-                    if basename in ("whisper-cli", "whisper-cli.exe", "whisper-server", "whisper-server.exe", "main", "main.exe"):
-                        extracted_path = os.path.join(target_dir, basename)
-                        with open(extracted_path, "wb") as f:
-                            f.write(zf.read(member))
-                        os.chmod(extracted_path, 0o755)
-            if os.path.exists(target_cli):
-                print(f"[+] Successfully auto-downloaded whisper binaries to {target_dir}")
-                return target_cli
-        except Exception as e:
-            print(f"[!] Could not auto-download pre-compiled whisper binary: {e}")
+        with self._compile_lock:
+            # Re-check in case another thread or call already compiled it
+            for p in [
+                os.path.join(project_root, "bin/whisper.cpp/build/bin/whisper-cli"),
+                os.path.join(project_root, "whisper.cpp/build/bin/whisper-cli"),
+                os.path.expanduser("~/.dicty_cache/whisper/whisper-cli")
+            ]:
+                if os.path.exists(p):
+                    self.whisper_cpp_path = os.path.abspath(p)
+                    return self.whisper_cpp_path
+
+            print("[*] whisper-cli missing in source checkout. Auto-compiling native whisper.cpp...")
+            try:
+                res = subprocess.run(
+                    ["bash", compile_script],
+                    cwd=project_root,
+                    capture_output=True,
+                    text=True,
+                    timeout=180
+                )
+                if res.returncode == 0:
+                    print("[+] Successfully auto-compiled native whisper.cpp!")
+                    for p in [
+                        os.path.join(project_root, "bin/whisper.cpp/build/bin/whisper-cli"),
+                        os.path.join(project_root, "whisper.cpp/build/bin/whisper-cli"),
+                        os.path.expanduser("~/.dicty_cache/whisper/whisper-cli")
+                    ]:
+                        if os.path.exists(p):
+                            self.whisper_cpp_path = os.path.abspath(p)
+                            return self.whisper_cpp_path
+                else:
+                    tail = res.stderr[-500:] if res.stderr else res.stdout[-500:]
+                    print(f"[!] Auto-compilation failed (code {res.returncode}): {tail}")
+            except Exception as e:
+                print(f"[!] Error auto-compiling whisper: {e}")
         return None
 
     def has_local_engine(self) -> bool:

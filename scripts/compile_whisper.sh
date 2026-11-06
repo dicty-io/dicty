@@ -39,13 +39,15 @@ fi
 
 echo "[*] Precompiled static whisper binaries not found in cache ($CACHE_DIR). Starting compilation..."
 
-# Use pip to install cmake in the local virtual environment to avoid Homebrew permission issues
-if [ ! -x "./.venv/bin/cmake" ]; then
+if [ -x "./.venv/bin/cmake" ]; then
+    CMAKE_BIN="$(pwd)/.venv/bin/cmake"
+elif command -v cmake >/dev/null 2>&1; then
+    CMAKE_BIN="$(command -v cmake)"
+else
     echo "[*] cmake not found in .venv. Installing via pip..."
-    ./.venv/bin/python3 -m pip install cmake
+    ./.venv/bin/python3 -m pip install cmake 2>/dev/null || python3 -m pip install cmake 2>/dev/null || true
+    CMAKE_BIN="$(command -v cmake 2>/dev/null || echo "$(pwd)/.venv/bin/cmake")"
 fi
-
-CMAKE_BIN="$(pwd)/.venv/bin/cmake"
 
 if [ ! -d "$WHISPER_DIR" ]; then
     if [ -d "whisper.cpp" ]; then
@@ -54,7 +56,7 @@ if [ ! -d "$WHISPER_DIR" ]; then
         echo "[-] Error: whisper.cpp source not found at $WHISPER_DIR."
         echo "[*] Cloning whisper.cpp..."
         mkdir -p bin
-        git clone https://github.com/ggerganov/whisper.cpp "$WHISPER_DIR"
+        git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git "$WHISPER_DIR"
     fi
 fi
 
