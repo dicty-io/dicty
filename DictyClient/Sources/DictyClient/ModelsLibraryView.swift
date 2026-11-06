@@ -1020,8 +1020,8 @@ struct ModelsLibraryView: View {
             }
             ProfileManager.shared.updateActiveProfileModels(llmModel: newModel)
             let isCloud = translationMethod == "cloud"
-            let missing = selectedTranslationModel.isEmpty || !cloudTextModels.contains(where: { $0.id == selectedTranslationModel })
-            if isCloud && missing {
+            let needsModel = selectedTranslationModel.isEmpty || selectedTranslationModel == "none"
+            if isCloud && needsModel {
                 selectedTranslationModel = newModel
             }
         }

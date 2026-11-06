@@ -25,8 +25,10 @@ class TestPiperService(unittest.TestCase):
     def test_piper_german_synthesis(self):
         try:
             import piper
-        except ImportError:
-            self.skipTest("piper module not installed in Python environment, skipping synthesis test.")
+        except ModuleNotFoundError as e:
+            if e.name == "piper":
+                self.skipTest("piper module not installed in Python environment, skipping synthesis test.")
+            raise
         voice_id = "piper:de_DE-thorsten-medium"
         # Download if not present
         if not self.service.is_voice_installed(voice_id):
@@ -50,8 +52,10 @@ class TestPiperService(unittest.TestCase):
     def test_piper_russian_synthesis(self):
         try:
             import piper
-        except ImportError:
-            self.skipTest("piper module not installed in Python environment, skipping synthesis test.")
+        except ModuleNotFoundError as e:
+            if e.name == "piper":
+                self.skipTest("piper module not installed in Python environment, skipping synthesis test.")
+            raise
         voice_id = "piper:ru_RU-dmitri-medium"
         # Download if not present
         if not self.service.is_voice_installed(voice_id):
@@ -74,8 +78,10 @@ class TestPiperService(unittest.TestCase):
     def test_tts_service_piper_dispatch(self):
         try:
             import piper
-        except ImportError:
-            self.skipTest("piper module not installed in Python environment, skipping synthesis test.")
+        except ModuleNotFoundError as e:
+            if e.name == "piper":
+                self.skipTest("piper module not installed in Python environment, skipping synthesis test.")
+            raise
         voice_id = "piper:de_DE-thorsten-medium"
         wav_bytes = self.tts.synthesize(
             text="Guten Tag!",

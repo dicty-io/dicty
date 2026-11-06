@@ -44,9 +44,29 @@ if [ -x "./.venv/bin/cmake" ]; then
 elif command -v cmake >/dev/null 2>&1; then
     CMAKE_BIN="$(command -v cmake)"
 else
-    echo "[*] cmake not found in .venv. Installing via pip..."
-    ./.venv/bin/python3 -m pip install cmake 2>/dev/null || python3 -m pip install cmake 2>/dev/null || true
-    CMAKE_BIN="$(command -v cmake 2>/dev/null || echo "$(pwd)/.venv/bin/cmake")"
+    echo "[*] cmake not found. Installing via pip..."
+    PY_BIN=""
+    if [ -x "./.venv/bin/python3" ]; then
+        PY_BIN="./.venv/bin/python3"
+    elif command -v python3 >/dev/null 2>&1; then
+        PY_BIN="$(command -v python3)"
+    elif command -v python >/dev/null 2>&1; then
+        PY_BIN="$(command -v python)"
+    fi
+
+    if [ -n "$PY_BIN" ]; then
+        "$PY_BIN" -m pip install cmake 2>/dev/null || true
+        PY_CMAKE_DIR="$("$PY_BIN" -c "import sys, os; print(os.path.join(sys.prefix, 'bin', 'cmake'))" 2>/dev/null || true)"
+        if [ -x "$PY_CMAKE_DIR" ]; then
+            CMAKE_BIN="$PY_CMAKE_DIR"
+        elif command -v cmake >/dev/null 2>&1; then
+            CMAKE_BIN="$(command -v cmake)"
+        else
+            CMAKE_BIN="cmake"
+        fi
+    else
+        CMAKE_BIN="cmake"
+    fi
 fi
 
 if [ ! -d "$WHISPER_DIR" ]; then

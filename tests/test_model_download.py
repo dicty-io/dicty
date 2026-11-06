@@ -167,11 +167,13 @@ class TestModelDownload(unittest.TestCase):
                  patch("sys.platform", "darwin"), \
                  patch("platform.system", return_value="Darwin"), \
                  patch("httpx.stream", side_effect=mock_stream_side_effect), \
-                 patch.object(self.mm, "set_model_quality"):
+                 patch("subprocess.run", side_effect=OSError("quantization unavailable")), \
+                 patch.object(self.mm, "set_model_quality") as mock_set_quality:
 
                 self.mm._download_worker(model_data, "q5_0", None, on_complete)
 
             self.assertEqual(stream_call_count, 2)
+            mock_set_quality.assert_called_once_with("tiny", "f16")
             dest_file = os.path.join(tmp_dir, "ggml-tiny.bin")
             self.assertTrue(os.path.exists(dest_file))
             self.assertEqual(self.mm.download_progress.get("tiny"), 100.0)
@@ -184,7 +186,7 @@ class TestModelDownload(unittest.TestCase):
                 "id": "tiny",
                 "name": "Nano",
                 "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
-                "size": "31 MB",
+                "size": "Cloud",
                 "is_cloud": False
             }
 
@@ -216,6 +218,8 @@ class TestModelDownload(unittest.TestCase):
             self.assertTrue(os.path.exists(dest_file))
             self.assertEqual(self.mm.download_progress.get("tiny"), 100.0)
             self.assertTrue(len(reports) > 0)
+            self.assertTrue(all(r < 100.0 for r in reports))
+            self.assertEqual(reports, sorted(reports))
             self.assertTrue(completed and completed[0])
 
     def test_atomic_set_model_quality(self):

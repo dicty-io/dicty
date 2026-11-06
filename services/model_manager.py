@@ -471,29 +471,37 @@ class ModelManager:
                 pass
         return "q5_0"
 
+    _settings_lock = threading.Lock()
+
     def set_model_quality(self, model_id: str, quality: str):
-        config = {}
-        if os.path.exists(SETTINGS_FILE):
-            try:
-                with open(SETTINGS_FILE, "r") as f:
-                    config = json.load(f)
-            except:
-                pass
-        if "model_qualities" not in config:
-            config["model_qualities"] = {}
-        config["model_qualities"][model_id] = quality
-        tmp_settings = SETTINGS_FILE + ".tmp"
-        try:
-            with open(tmp_settings, "w") as f:
-                json.dump(config, f, indent=2)
-            os.replace(tmp_settings, SETTINGS_FILE)
-        except Exception as err:
-            if os.path.exists(tmp_settings):
+        with self._settings_lock:
+            config = {}
+            if os.path.exists(SETTINGS_FILE):
                 try:
-                    os.remove(tmp_settings)
+                    with open(SETTINGS_FILE, "r") as f:
+                        config = json.load(f)
                 except Exception:
                     pass
-            print(f"[!] Error saving settings.json atomically: {err}")
+            if "model_qualities" not in config:
+                config["model_qualities"] = {}
+            config["model_qualities"][model_id] = quality
+            
+            import tempfile
+            settings_dir = os.path.dirname(SETTINGS_FILE) or "."
+            os.makedirs(settings_dir, exist_ok=True)
+            tmp_settings = None
+            try:
+                with tempfile.NamedTemporaryFile("w", dir=settings_dir, delete=False, suffix=".tmp") as f:
+                    tmp_settings = f.name
+                    json.dump(config, f, indent=2)
+                os.replace(tmp_settings, SETTINGS_FILE)
+            except Exception as err:
+                if tmp_settings and os.path.exists(tmp_settings):
+                    try:
+                        os.remove(tmp_settings)
+                    except Exception:
+                        pass
+                print(f"[!] Error saving settings.json atomically: {err}")
 
     def start_download(self, model_id: str, quality: str = "q5_0", on_progress=None, on_complete=None):
         if model_id in self.downloading:

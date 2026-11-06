@@ -69,23 +69,28 @@ class EngineClient: ObservableObject {
         return true
     }
     
-    // The effective LLM provider: falls back to openrouter if dicty_cloud is selected without active Pro login / balance,
-    // and automatically routes to dicty_cloud if the user is a Pro subscriber or has cloud credits without custom API keys.
+    // The effective LLM provider for text processing (formatting, cleanup, rewrite):
     var effectiveLLMProvider: String {
         let provider = UserDefaults.standard.string(forKey: "llmProvider") ?? "openrouter"
         let hasCloudAccess = isLoggedIn && (isPro || computeBalance > 0)
         if provider == "dicty_cloud" && !hasCloudAccess {
             return "openrouter"
         }
+        if provider == "openrouter" && hasCloudAccess && !hasCustomAPIKey {
+            return "dicty_cloud"
+        }
+        return provider
+    }
+
+    // The effective route provider for cloud speech transcription (e.g. Deepgram Nova-3):
+    var effectiveSpeechRoute: String {
+        let hasCloudAccess = isLoggedIn && (isPro || computeBalance > 0)
         let isDeepgramActive = activeModel.contains("deepgram")
         let hasDeepgramKey = !(SecretsManager.readSecret(forKey: "deepgramApiKey") ?? "").isEmpty
         if isDeepgramActive && !hasDeepgramKey && hasCloudAccess {
             return "dicty_cloud"
         }
-        if provider == "openrouter" && hasCloudAccess && !hasCustomAPIKey {
-            return "dicty_cloud"
-        }
-        return provider
+        return effectiveLLMProvider
     }
     @Published var offlineMode: Bool = false
     @Published var engineAuthFailed: Bool = false
@@ -2936,7 +2941,7 @@ class EngineClient: ObservableObject {
                 // Cloud models: transcribe while speaking (Deepgram live / pause-segmented). No secrets in the URL;
                 // keys are pushed separately via /settings/stt_keys.
                 "cloud_streaming=\(UserDefaults.standard.object(forKey: "cloudStreaming") as? Bool ?? true)",
-                "cloud_route=\(self.effectiveLLMProvider)",
+                "cloud_route=\(self.effectiveSpeechRoute)",
                 "translate_to_english=\(self.translateToEnglish)",
                 "enable_self_correction=\(self.enableSelfCorrection)",
                 appId.map { "app_id=\($0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0)" },
@@ -3417,6 +3422,10 @@ class EngineClient: ObservableObject {
         
         let targetSystem = UserDefaults.standard.string(forKey: "targetSystem") ?? "confluence"
         let obsidianPath = UserDefaults.standard.string(forKey: "obsidianPath") ?? ""
+        
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"speech_route\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(self.effectiveSpeechRoute)\r\n".data(using: .utf8)!)
         
         let llmProvider = self.effectiveLLMProvider
         let llmBaseUrl = UserDefaults.standard.string(forKey: "llmBaseUrl") ?? "http://localhost:1234/v1"
@@ -3905,6 +3914,10 @@ class EngineClient: ObservableObject {
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"target_language\"\r\n\r\n".data(using: .utf8)!)
         body.append("\(targetLanguage)\r\n".data(using: .utf8)!)
+        
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"speech_route\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(self.effectiveSpeechRoute)\r\n".data(using: .utf8)!)
         
         let llmProvider = self.effectiveLLMProvider
         let llmBaseUrl = UserDefaults.standard.string(forKey: "llmBaseUrl") ?? ""

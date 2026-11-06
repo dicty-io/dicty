@@ -70,7 +70,9 @@ async def test_routing():
             url = call_args[0]
             headers = call_kwargs["headers"]
             print(f"Verified Dicty Cloud URL: {url}")
-            assert "dicty-backend" in url or "api.dicty.io" in url
+            from urllib.parse import urlparse
+            netloc = urlparse(url).netloc
+            assert netloc.startswith("dicty-backend") or netloc.endswith("api.dicty.io")
             assert headers["Authorization"] == "Bearer dicty-jwt-sample-token"
             print("[PASS] Dicty Cloud routing verified!")
 
@@ -85,7 +87,8 @@ async def test_routing():
             url = call_args[0]
             headers = call_kwargs["headers"]
             print(f"Verified Nova-3 URL: {url}")
-            assert "dicty-backend" in url or "api.dicty.io" in url
+            netloc_nova = urlparse(url).netloc
+            assert netloc_nova.startswith("dicty-backend") or netloc_nova.endswith("api.dicty.io")
             assert headers["Authorization"] == "Bearer dicty-jwt-sample-token"
             print("[PASS] Deepgram Nova-3 Dicty Cloud routing verified!")
             

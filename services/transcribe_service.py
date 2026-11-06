@@ -411,21 +411,19 @@ class TranscribeService:
                 self.whisper_cpp_path = os.path.abspath(p)
                 return self.whisper_cpp_path
                 
-        # 3. If missing from local paths, attempt auto-compiling native binary from source
-        compiled_bin = self._auto_compile_whisper()
-        if compiled_bin and os.path.exists(compiled_bin):
-            self.whisper_cpp_path = compiled_bin
-            return self.whisper_cpp_path
-
-        # 4. If compilation failed or unavailable, warn rather than crash engine startup
-        print("[!] Warning: whisper-cli binary not found. Run ./scripts/compile_whisper.sh to compile local whisper.cpp.")
+        # 3. If missing from local paths and compilation not disabled, attempt auto-compiling once in background/prewarm
+        if not self.whisper_cpp_path:
+            return None
         return self.whisper_cpp_path
 
     _compile_lock = threading.Lock()
+    _compile_attempted = False
+    _compile_failed = False
 
-    def _auto_compile_whisper(self):
+    def _auto_compile_whisper(self, force: bool = False):
         """
-        Automatically compiles native whisper.cpp if running from source in development.
+        Automatically compiles native whisper.cpp once if running from source in development.
+        Does not re-attempt if a previous compilation failed unless force=True.
         """
         import subprocess
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -433,8 +431,18 @@ class TranscribeService:
         if not os.path.exists(compile_script):
             return None
 
+        # Check existing without lock first
+        for p in [
+            os.path.join(project_root, "bin/whisper.cpp/build/bin/whisper-cli"),
+            os.path.join(project_root, "whisper.cpp/build/bin/whisper-cli"),
+            os.path.expanduser("~/.dicty_cache/whisper/whisper-cli")
+        ]:
+            if os.path.exists(p):
+                self.whisper_cpp_path = os.path.abspath(p)
+                return self.whisper_cpp_path
+
         with self._compile_lock:
-            # Re-check in case another thread or call already compiled it
+            # Re-check under lock
             for p in [
                 os.path.join(project_root, "bin/whisper.cpp/build/bin/whisper-cli"),
                 os.path.join(project_root, "whisper.cpp/build/bin/whisper-cli"),
@@ -444,6 +452,10 @@ class TranscribeService:
                     self.whisper_cpp_path = os.path.abspath(p)
                     return self.whisper_cpp_path
 
+            if TranscribeService._compile_attempted and not force:
+                return None
+
+            TranscribeService._compile_attempted = True
             print("[*] whisper-cli missing in source checkout. Auto-compiling native whisper.cpp...")
             try:
                 res = subprocess.run(
@@ -455,6 +467,7 @@ class TranscribeService:
                 )
                 if res.returncode == 0:
                     print("[+] Successfully auto-compiled native whisper.cpp!")
+                    TranscribeService._compile_failed = False
                     for p in [
                         os.path.join(project_root, "bin/whisper.cpp/build/bin/whisper-cli"),
                         os.path.join(project_root, "whisper.cpp/build/bin/whisper-cli"),
@@ -464,13 +477,27 @@ class TranscribeService:
                             self.whisper_cpp_path = os.path.abspath(p)
                             return self.whisper_cpp_path
                 else:
+                    TranscribeService._compile_failed = True
                     tail = res.stderr[-500:] if res.stderr else res.stdout[-500:]
                     print(f"[!] Auto-compilation failed (code {res.returncode}): {tail}")
             except Exception as e:
+                TranscribeService._compile_failed = True
                 print(f"[!] Error auto-compiling whisper: {e}")
         return None
 
     def has_local_engine(self) -> bool:
+        """Returns True if any local speech engine (whisper.cpp, faster-whisper, or whisper) is available. Non-blocking."""
+        if self.whisper_cpp_path and os.path.exists(self.whisper_cpp_path):
+            return True
+        cpp = self._ensure_whisper_cpp_binary()
+        if cpp and os.path.exists(cpp):
+            return True
+        import importlib.util
+        if importlib.util.find_spec("faster_whisper") is not None:
+            return True
+        if importlib.util.find_spec("whisper") is not None:
+            return True
+        return False
         """Returns True if any local speech engine (whisper.cpp, faster-whisper, or whisper) is available."""
         if self.whisper_cpp_path and os.path.exists(self.whisper_cpp_path):
             return True

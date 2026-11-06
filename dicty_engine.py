@@ -247,13 +247,17 @@ def startup_event():
     # Pre-warm local faster-whisper model in RAM asynchronously for instant first-utterance dictation
     def _prewarm_models(target_model_id: str = None):
         try:
-            from transcribe_service import TranscribeService, prewarm_faster_whisper
+            from transcribe_service import TranscribeService
             ts = TranscribeService()
             if not ts.has_local_engine():
                 ts._auto_compile_whisper()
+        except Exception as e:
+            print(f"[-] Whisper auto-compilation skipped: {e}")
+        try:
+            from transcribe_service import prewarm_faster_whisper
             prewarm_faster_whisper(target_model_id)
         except Exception as e:
-            print(f"[-] Model prewarm skipped: {e}")
+            print(f"[-] Faster-whisper prewarm skipped: {e}")
         try:
             if tts_service:
                 tts_service.prewarm()
