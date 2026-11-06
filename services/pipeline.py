@@ -220,8 +220,10 @@ async def process_transcription(
     mode_style: str = None,
     correction_location: str = None,
     skip_cloud: bool = False,
+    speech_route: str = None,
 ):
     _metrics_t0 = time.perf_counter()
+    effective_speech_route = speech_route or llm_provider
     if (dictation_format_style or "").strip().lower() == "auto" and mode in ("meeting", "focused_meeting"):
         dictation_format_style = "meeting_summary"
     else:
@@ -304,12 +306,12 @@ async def process_transcription(
             tasks.append(transcriber.transcribe_segments(
                 mic_audio_path,
                 vocab_data=vocab_data,
-                openai_api_key=llm_api_key if llm_provider == "dicty_cloud" else openai_api_key,
-                openrouter_key=llm_api_key,
+                openai_api_key=openai_api_key if effective_speech_route == "openai" else None,
+                openrouter_key=llm_api_key if effective_speech_route == "openrouter" else None,
                 language=language,
                 translate_to_english=whisper_translate,
                 enable_auto_completion=enable_auto_completion,
-                provider=llm_provider
+                provider=effective_speech_route
             ))
         else:
             async def _empty_segs(): return []
@@ -318,12 +320,12 @@ async def process_transcription(
         tasks.append(transcriber.transcribe_segments(
             audio_path,
             vocab_data=vocab_data,
-            openai_api_key=llm_api_key if llm_provider == "dicty_cloud" else openai_api_key,
-            openrouter_key=llm_api_key,
+            openai_api_key=openai_api_key if effective_speech_route == "openai" else None,
+            openrouter_key=llm_api_key if effective_speech_route == "openrouter" else None,
             language=language,
             translate_to_english=whisper_translate,
             enable_auto_completion=enable_auto_completion,
-            provider=llm_provider
+            provider=effective_speech_route
         ))
 
         try:
@@ -400,13 +402,13 @@ async def process_transcription(
             raw_text = await transcriber.transcribe(
                 audio_path, 
                 vocab_data, 
-                openai_api_key=llm_api_key if llm_provider == "dicty_cloud" else openai_api_key, 
-                openrouter_key=llm_api_key, 
+                openai_api_key=openai_api_key if effective_speech_route == "openai" else None, 
+                openrouter_key=llm_api_key if effective_speech_route == "openrouter" else None, 
                 language=language, 
                 translate_to_english=whisper_translate, 
                 enable_auto_completion=enable_auto_completion,
                 with_timestamps=False,
-                provider=llm_provider,
+                provider=effective_speech_route,
                 skip_cloud=skip_cloud
             )
             if not raw_text or raw_text.strip() == "":

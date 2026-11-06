@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from typing import Optional
 import asyncio
 import dictation_metrics
 import engine_auth
@@ -348,11 +349,11 @@ async def transcribe_local_file(
         effective_speech_route = speech_route if speech_route else llm_provider
         raw_text = await transcriber.transcribe(
             temp_path,
-            openai_api_key=llm_api_key if effective_speech_route == "dicty_cloud" else openai_api_key,
+            openai_api_key=openai_api_key if effective_speech_route == "openai" else None,
             language=language,
             translate_to_english=translate_bool,
             enable_auto_completion=auto_complete_bool,
-            openrouter_key=llm_api_key,
+            openrouter_key=llm_api_key if effective_speech_route == "openrouter" else None,
             provider=effective_speech_route
         )
         

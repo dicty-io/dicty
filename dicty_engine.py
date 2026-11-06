@@ -249,7 +249,7 @@ def startup_event():
         try:
             from transcribe_service import TranscribeService
             ts = TranscribeService()
-            if not ts.has_local_engine():
+            if not ts._ensure_whisper_cpp_binary():
                 ts._auto_compile_whisper()
         except Exception as e:
             print(f"[-] Whisper auto-compilation skipped: {e}")

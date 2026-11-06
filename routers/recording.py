@@ -65,6 +65,7 @@ async def start_recording(device_id: int = None, language: str = "auto", is_mute
     recorder.last_manual_override_active = manual_override_active
     recorder.last_resolved_mode = resolved_mode
     recorder.last_mode_reason = mode_reason
+    recorder.last_cloud_route = cloud_route
 
     # Warm the direct cloud STT connection while the user is still speaking
     asyncio.create_task(transcribe_service.prewarm_direct_provider(model_manager.get_active_model(), cloud_route))
@@ -218,7 +219,8 @@ async def stop_recording(
     domain: str = Form(""),
     mode_override: str = Form(""),
     manual_override_active: str = Form("false"),
-    author_name: str = Form("")
+    author_name: str = Form(""),
+    speech_route: str = Form("")
 ):
     translate_bool = translate_to_english.lower() == "true"
     auto_complete_bool = enable_auto_completion.lower() == "true"
@@ -428,7 +430,8 @@ async def stop_recording(
             app_id=effective_app_id,
             mode_id=resolved_mode_id,
             mode_reason=resolved_mode_reason,
-            skip_cloud=skip_cloud_fallback
+            skip_cloud=skip_cloud_fallback,
+            speech_route=speech_route or getattr(recorder, "last_cloud_route", "") or llm_provider
         )
     finally:
         if temp_mixed and os.path.exists(temp_mixed):
