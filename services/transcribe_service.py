@@ -946,7 +946,7 @@ class TranscribeService:
                 url = "https://api.groq.com/openai/v1/audio/transcriptions"
                 target_model = model_name.replace("groq/", "")
                 headers = {"Authorization": f"Bearer {api_key}"}
-                print(f"[*] [Cloud STT] Direct Groq API routing ({url}) using key {api_key[:8]}... (Model: {target_model})")
+                print(f"[*] [Cloud STT] Direct Groq API routing ({url}) (Model: {target_model})")
                 fallback_note = "your Groq key"
             else:
                 # Fallback: check if user has OpenRouter key
@@ -976,7 +976,7 @@ class TranscribeService:
                         url += f"&keyterm={quote_plus(term)}"
                 headers = {"Authorization": f"Token {api_key}", "Content-Type": "audio/wav"}
                 is_deepgram = True
-                print(f"[*] [Cloud STT] Direct Deepgram API routing ({url}) using key {api_key[:8]}...")
+                print(f"[*] [Cloud STT] Direct Deepgram API routing ({url})...")
             else:
                 # Fallback to OpenRouter if available
                 for k in [effective_openrouter, env_openrouter]:
@@ -1002,7 +1002,7 @@ class TranscribeService:
                 url = "https://api.elevenlabs.io/v1/speech-to-text"
                 target_model = model_name.replace("elevenlabs/", "").replace("-", "_")
                 headers = {"xi-api-key": api_key}
-                print(f"[*] [Cloud STT] Direct ElevenLabs API routing ({url}) using key {api_key[:8]}...")
+                print(f"[*] [Cloud STT] Direct ElevenLabs API routing ({url})...")
                 fallback_note = "your ElevenLabs key"
             else:
                 for k in [effective_openrouter, env_openrouter]:
@@ -1028,7 +1028,7 @@ class TranscribeService:
                             url = "https://api.openai.com/v1/audio/translations"
                         target_model = "whisper-1"
                         headers = {"Authorization": f"Bearer {api_key}"}
-                        print(f"[*] [Cloud STT] Direct OpenAI API routing ({url}) using key {api_key[:10]}...")
+                        print(f"[*] [Cloud STT] Direct OpenAI API routing ({url})...")
                         break
                         
             # If no direct OpenAI key, route via OpenRouter using user's OpenRouter key
@@ -1039,7 +1039,7 @@ class TranscribeService:
                         url = "https://openrouter.ai/api/v1/audio/transcriptions"
                         target_model = "openai/whisper-large-v3"
                         headers = {"Authorization": f"Bearer {api_key}"}
-                        print(f"[*] [Cloud STT] Routing OpenAI model via user's OpenRouter token ({api_key[:10]}...) to {url}")
+                        print(f"[*] [Cloud STT] Routing OpenAI model via user's OpenRouter token to {url}")
                         break
 
         # 6. OpenRouter Speech Models (e.g. nvidia/parakeet-tdt-0.6b-v3, or any model with "/")
@@ -1056,7 +1056,7 @@ class TranscribeService:
                             break
             if api_key:
                 headers = {"Authorization": f"Bearer {api_key}"}
-                print(f"[*] [Cloud STT] OpenRouter API routing ({url}) using user token {api_key[:12]}... (Model: {target_model})")
+                print(f"[*] [Cloud STT] OpenRouter API routing ({url}) (Model: {target_model})")
 
         if not api_key or not url:
             raise ValueError(

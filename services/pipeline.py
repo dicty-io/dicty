@@ -273,7 +273,15 @@ async def process_transcription(
     from model_manager import ModelManager, MODELS_DIR
     mm = ModelManager()
     active_model_id = (model_id or "").strip() or mm.get_active_model()
-    model_file = mm.get_model_file_path(active_model_id) or os.path.abspath(os.path.join(MODELS_DIR, f"ggml-{active_model_id}.bin"))
+    clean_model_basename = re.sub(r"[^a-zA-Z0-9_\-\.]", "", os.path.basename(active_model_id))
+    model_file = mm.get_model_file_path(clean_model_basename)
+    if not model_file:
+        real_models_dir = os.path.realpath(MODELS_DIR)
+        candidate = os.path.realpath(os.path.join(real_models_dir, f"ggml-{clean_model_basename}.bin"))
+        if candidate.startswith(real_models_dir + os.sep) and os.path.exists(candidate):
+            model_file = candidate
+        else:
+            model_file = os.path.join(real_models_dir, f"ggml-{clean_model_basename}.bin")
     
     active_model_info = next((m for m in mm.get_available_models() if m["id"] == active_model_id), None)
     is_cloud_model = (active_model_info and active_model_info.get("is_cloud", False)) or ("/" in active_model_id) or (active_model_id in ["whisper-1", "deepgram/nova-3"])
@@ -285,7 +293,7 @@ async def process_transcription(
     except ImportError:
         pass
 
-    if not model_id and not is_cloud_model and not can_faster and not os.path.exists(model_file):
+    if not model_id and not is_cloud_model and not can_faster and (not model_file or not os.path.exists(model_file)):
         downloaded = mm.get_downloaded_models()
         if downloaded:
             # If non-English language requested, prefer multilingual models (not ending in .en)
@@ -573,7 +581,7 @@ async def process_transcription(
 
 
     model_size_mb = 0.0
-    if os.path.exists(transcriber.whisper_model_path):
+    if transcriber.whisper_model_path and os.path.exists(transcriber.whisper_model_path):
         model_size_mb = os.path.getsize(transcriber.whisper_model_path) / (1024.0 * 1024.0)
     rtf = (engine_time / duration_seconds) if duration_seconds > 0 else 0.0
 
