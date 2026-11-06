@@ -272,13 +272,32 @@ async def process_transcription(
     # Get active model intelligently, with safety fallback if file is missing
     from model_manager import ModelManager, MODELS_DIR
     mm = ModelManager()
-    active_model_id = (model_id or "").strip() or mm.get_active_model()
+    
+    available_models = mm.get_available_models()
+    known_model_ids = {m["id"] for m in available_models if "id" in m}
+    for d in mm.get_downloaded_models():
+        known_model_ids.add(d)
+        known_model_ids.add(d.replace("ggml-", "").replace(".bin", "").replace(".gguf", ""))
+    
+    cand_model = (model_id or "").strip()
+    if cand_model and cand_model in known_model_ids:
+        active_model_id = cand_model
+    else:
+        active_model_id = mm.get_active_model()
+        
+    def _is_safe_model_path(path: str) -> bool:
+        if not path or not isinstance(path, str):
+            return False
+        real_models_dir = os.path.realpath(MODELS_DIR)
+        real_path = os.path.realpath(path)
+        return os.path.commonpath([real_models_dir, real_path]) == real_models_dir
+
     clean_model_basename = re.sub(r"[^a-zA-Z0-9_\-\.]", "", os.path.basename(active_model_id))
     model_file = mm.get_model_file_path(clean_model_basename)
-    if not model_file:
+    if not model_file or not _is_safe_model_path(model_file):
         real_models_dir = os.path.realpath(MODELS_DIR)
         candidate = os.path.realpath(os.path.join(real_models_dir, f"ggml-{clean_model_basename}.bin"))
-        if candidate.startswith(real_models_dir + os.sep) and os.path.exists(candidate):
+        if _is_safe_model_path(candidate) and os.path.exists(candidate):
             model_file = candidate
         else:
             model_file = os.path.join(real_models_dir, f"ggml-{clean_model_basename}.bin")
@@ -293,14 +312,15 @@ async def process_transcription(
     except ImportError:
         pass
 
-    if not model_id and not is_cloud_model and not can_faster and (not model_file or not os.path.exists(model_file)):
+    if not model_id and not is_cloud_model and not can_faster and (not model_file or not _is_safe_model_path(model_file) or not os.path.exists(model_file)):
         downloaded = mm.get_downloaded_models()
         if downloaded:
             # If non-English language requested, prefer multilingual models (not ending in .en)
             multi_models = [d for d in downloaded if not d.replace('.bin', '').replace('.gguf', '').endswith('.en')]
             chosen_file = multi_models[0] if (multi_models and language not in ["en", "auto"]) else downloaded[0]
-            model_file = os.path.abspath(os.path.join(MODELS_DIR, chosen_file))
-            active_model_id = chosen_file.replace("ggml-", "").replace(".bin", "").replace(".gguf", "")
+            clean_chosen = re.sub(r"[^a-zA-Z0-9_\-\.]", "", os.path.basename(chosen_file))
+            model_file = os.path.abspath(os.path.join(MODELS_DIR, clean_chosen))
+            active_model_id = clean_chosen.replace("ggml-", "").replace(".bin", "").replace(".gguf", "")
             print(f"[!] Target model missing. Safely falling back to downloaded model '{active_model_id}'.")
     transcriber.whisper_model_path = model_file
     if whisper_server.keep_model_loaded and not is_cloud_model:
@@ -581,8 +601,9 @@ async def process_transcription(
 
 
     model_size_mb = 0.0
-    if transcriber.whisper_model_path and os.path.exists(transcriber.whisper_model_path):
-        model_size_mb = os.path.getsize(transcriber.whisper_model_path) / (1024.0 * 1024.0)
+    model_path = transcriber.whisper_model_path
+    if model_path and _is_safe_model_path(model_path) and os.path.exists(model_path):
+        model_size_mb = os.path.getsize(model_path) / (1024.0 * 1024.0)
     rtf = (engine_time / duration_seconds) if duration_seconds > 0 else 0.0
 
     print("=" * 68)
