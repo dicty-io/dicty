@@ -100,7 +100,12 @@ async def set_active_model(model_id: str):
         )
     manager.set_active_model(model_id)
     load_dotenv(override=True)
-    if whisper_server.keep_model_loaded:
+    models = manager.get_available_models()
+    active_model_dict = next((m for m in models if m["id"] == model_id), None)
+    is_cloud_model = bool((active_model_dict and active_model_dict.get("is_cloud", False)) or ("/" in model_id) or model_id in ["whisper-1", "deepgram/nova-3"])
+    if is_cloud_model:
+        stop_whisper_server()
+    elif whisper_server.keep_model_loaded:
         stop_whisper_server()
         import time
         time.sleep(1)

@@ -5,6 +5,7 @@ import engine_auth
 import local_llm
 import numpy as np
 import os
+import re
 import snippet_service
 import sys
 import tempfile
@@ -120,11 +121,16 @@ async def start_recording(device_id: int = None, language: str = "auto", is_mute
         words = [v["word"] for v in vocab_data if "word" in v]
         # Bias recognition toward snippet trigger phrases (never their content)
         words += [t for t in snippet_service.whisper_bias_terms(snippets_manager.get_all()) if t not in words]
-        custom_prompt_str = ", ".join(words) if words else ""
+        has_non_latin = any(re.search(r'[^\x00-\x7F]', w) for w in words)
+        if language != "auto" or has_non_latin:
+            custom_prompt_str = ", ".join(words) if words else ""
+        else:
+            custom_prompt_str = ""
     except Exception:
         custom_prompt_str = ""
         
-    recorder.start(device_id, language=language, custom_prompt=custom_prompt_str, is_muted=is_muted, mode=mode, use_vad_streaming=use_vad_streaming)
+    effective_vad_streaming = use_vad_streaming if not is_cloud_model else False
+    recorder.start(device_id, language=language, custom_prompt=custom_prompt_str, is_muted=is_muted, mode=mode, use_vad_streaming=effective_vad_streaming)
     
     # Cloud models: transcribe while the user is speaking (Deepgram live / pause-segmented batch).
     # Not for meetings (mixed system audio is transcribed as a whole) or translation (batch-only feature).
@@ -139,9 +145,11 @@ async def start_recording(device_id: int = None, language: str = "auto", is_mute
             for t in snippet_service.whisper_bias_terms(snippets_manager.get_all()):
                 if t not in vocab_words:
                     vocab_words.append(t)
+            has_non_latin_vocab = any(re.search(r'[^\x00-\x7F]', w) for w in vocab_words)
+            streaming_vocab = vocab_words if (language != "auto" or has_non_latin_vocab) else []
             session = cloud_streaming_mod.create_session(
                 asyncio.get_running_loop(), active_model_id, getattr(recorder, "actual_sample_rate", 16000),
-                route_provider=cloud_route, language=language, vocab_words=vocab_words)
+                route_provider=cloud_route, language=language, vocab_words=streaming_vocab)
             if session is not None:
                 recorder.attach_stream_session(session)
                 streaming = session.label
@@ -304,7 +312,12 @@ async def stop_recording(
             stream_session.abort()
         raise HTTPException(status_code=400, detail="Recording failed or was too short.")
 
-    final_text = recorder.committed_text.strip() if getattr(recorder, "committed_text", "") else None
+    active_model_id = model_manager.get_active_model()
+    models = model_manager.get_available_models()
+    active_model_dict = next((m for m in models if m["id"] == active_model_id), None)
+    is_cloud_model = bool((active_model_dict and active_model_dict.get("is_cloud", False)) or ("/" in active_model_id) or active_model_id in ["whisper-1", "deepgram/nova-3"])
+
+    final_text = recorder.committed_text.strip() if (getattr(recorder, "committed_text", "") and not is_cloud_model) else None
     if final_text == "": final_text = None
     
     # Determine effective app and resolve per-app mode
@@ -399,8 +412,7 @@ async def stop_recording(
     
     skip_cloud_fallback = False
     if stream_session is not None and getattr(stream_session, 'auth_failed', False):
-        skip_cloud_fallback = True
-        print(f"[*] Cloud streaming failed authentication (401); skipping doomed REST retry and falling straight to local speech engine.")
+        print(f"[*] Cloud streaming encountered auth failure; falling back to full-file Cloud REST STT...")
     
     set_status("Fetching GitHub context...")
     if final_text:

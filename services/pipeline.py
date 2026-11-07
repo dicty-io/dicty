@@ -316,7 +316,7 @@ async def process_transcription(
             if downloaded:
                 # If non-English language requested, prefer multilingual models (not ending in .en)
                 multi_models = [d for d in downloaded if not d.replace('.bin', '').replace('.gguf', '').endswith('.en')]
-                chosen_file = multi_models[0] if (multi_models and language not in ["en", "auto"]) else downloaded[0]
+                chosen_file = multi_models[0] if (multi_models and language != "en") else downloaded[0]
                 model_file = os.path.join(MODELS_DIR, chosen_file)
                 active_model_id = chosen_file.replace("ggml-", "").replace(".bin", "").replace(".gguf", "")
                 print(f"[!] Target model missing. Safely falling back to downloaded model '{active_model_id}'.")
@@ -445,7 +445,9 @@ async def process_transcription(
             note_parts.append(summary_text)
 
         full_note = "\n\n".join(note_parts)
-    elif pre_transcribed_text and not should_diarize and not is_meeting_mode:
+    elif pre_transcribed_text and not should_diarize and not is_meeting_mode and not (
+        is_cloud_model and not (pre_transcribed_provider and any(p in str(pre_transcribed_provider) for p in ("Cloud", "Deepgram", "Segmented")))
+    ):
         raw_text = pre_transcribed_text
         print(f"[*] Using pre-transcribed text from {pre_transcribed_provider or 'local VAD stream'} (instant).")
     else:
