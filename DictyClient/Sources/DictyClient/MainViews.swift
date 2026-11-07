@@ -851,7 +851,7 @@ struct SettingsView: View {
                     .padding(.horizontal, 10)
                     .padding(.bottom, 10)
                 }
-                .padding(.top, 8)
+                .padding(.top, 36)
                 
                 Divider()
                 
@@ -889,7 +889,7 @@ struct SettingsView: View {
                 if Self.keepAlivePages.contains(selection) { EmptyView() }
                 else if selection == 0 { HomeView() }
                 else if selection == 1 { ModesView() }
-                else if [4, 6, 11, 14, 15, 16].contains(selection) { SettingsHubView() }
+                else if [4, 6, 11, 14, 15, 16, 21].contains(selection) { SettingsHubView() }
                 else if selection == 22 || selection == 5 || selection == 19 { WordsView() }
                 else if selection == 7 { TranscribeFileView() }
                 else if selection == 8 || selection == 12 || selection == 17 { ProjectsView() }
