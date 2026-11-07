@@ -288,7 +288,7 @@ class EngineClient: ObservableObject {
     @AppStorage("enableAutoCompletion") var enableAutoCompletion: Bool = false
     @AppStorage("enableSelfCorrection") var enableSelfCorrection: Bool = false
     @AppStorage("selfCorrectionModel") var selfCorrectionModel: String = ""
-    @AppStorage("translationMethod") var translationMethod: String = "built_in"
+    @AppStorage("translationMethod") var translationMethod: String = "none"
     @AppStorage("selectedTranslationModel") var selectedTranslationModel: String = ""
     @AppStorage("keepModelInMemory") var keepModelInMemory: Bool = true
     @AppStorage("favoriteModels") var favoriteModelsString: String = ""
@@ -3576,9 +3576,10 @@ class EngineClient: ObservableObject {
         body.append("Content-Disposition: form-data; name=\"self_correction_model\"\r\n\r\n".data(using: .utf8)!)
         body.append("\(selfCorrectionModel)\r\n".data(using: .utf8)!)
         
+        let effectiveTranslationMethod = (translateToEnglish || (targetLanguage != "none" && !targetLanguage.isEmpty)) ? translationMethod : "none"
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"translation_method\"\r\n\r\n".data(using: .utf8)!)
-        body.append("\(translationMethod)\r\n".data(using: .utf8)!)
+        body.append("\(effectiveTranslationMethod)\r\n".data(using: .utf8)!)
         
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"target_language\"\r\n\r\n".data(using: .utf8)!)

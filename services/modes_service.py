@@ -164,7 +164,9 @@ def _translation_target(source: dict[str, Any]) -> str | None:
     if _as_bool(source.get("translateToEnglish") or source.get("translate_to_english"), False):
         return "en"
     if method == "built_in":
-        return "en"
+        if target in ("en", "english"):
+            return "en"
+        return None
     if method in ("cloud", "lm_studio", "llm"):
         if target not in ("", "none", "auto", "same"):
             return target
