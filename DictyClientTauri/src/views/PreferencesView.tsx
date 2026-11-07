@@ -22,6 +22,10 @@ import {
   SystemSoundEntry,
   DEFAULT_WINDOWS_SOUNDS,
 } from "../services/soundEffects";
+import {
+  ACCENT_PRESETS,
+  useAppAccent,
+} from "../services/themeService";
 
 interface ThemeCardProps {
   title: string;
@@ -37,9 +41,13 @@ const ThemeCard: React.FC<ThemeCardProps> = ({ title, theme, isSelected, onSelec
       className="flex flex-col items-center gap-2.5 cursor-pointer group select-none"
     >
       <div
-        className={`w-28 h-18 rounded-xl border relative overflow-hidden transition-all shadow-sm ${
+        style={{
+          borderColor: isSelected ? "var(--app-accent, #87B996)" : undefined,
+          boxShadow: isSelected ? "0 0 12px rgba(var(--app-accent-glow, 93, 102, 88), 0.35)" : undefined,
+        }}
+        className={`w-28 h-16 rounded-xl border relative overflow-hidden transition-all shadow-sm ${
           isSelected
-            ? "border-[#87B996] ring-2 ring-[#87B996]/30 shadow-[0_0_12px_rgba(135,185,150,0.25)]"
+            ? "ring-2 ring-[var(--app-accent,#87B996)]/30"
             : "border-white/15 hover:border-white/30"
         }`}
       >
@@ -132,6 +140,7 @@ export const PreferencesView: React.FC = () => {
   const [theme, setTheme] = useState<"auto" | "light" | "dark">(() => {
     return (localStorage.getItem("dicty_theme") as "auto" | "light" | "dark") || "dark";
   });
+  const { accent: activeAccent, setAccent: handleAccentSelect } = useAppAccent();
   const [showInTaskbar, setShowInTaskbar] = useState(() => {
     return localStorage.getItem("dicty_show_in_taskbar") !== "false";
   });
@@ -143,6 +152,9 @@ export const PreferencesView: React.FC = () => {
   });
   const [showModeLabel, setShowModeLabel] = useState(() => {
     return localStorage.getItem("dicty_show_mode_label") !== "false";
+  });
+  const [overlayDockPosition, setOverlayDockPosition] = useState(() => {
+    return localStorage.getItem("overlayDockPosition") || "bottom";
   });
 
   // Mode Accent Colors
@@ -439,6 +451,37 @@ export const PreferencesView: React.FC = () => {
             onSelect={() => setTheme("dark")}
           />
         </div>
+
+        {/* Dynamic Accent Color Palette (1:1 with AppAccentColor.swift) */}
+        <div className="space-y-2 pt-2">
+          <span className="text-xs font-medium text-white/90">Accent Theme Color</span>
+          <div className="flex items-center gap-3">
+            {ACCENT_PRESETS.map((preset) => {
+              const isSelected = activeAccent === preset.id;
+              return (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => handleAccentSelect(preset.id)}
+                  title={preset.displayName}
+                  aria-label={preset.displayName}
+                  aria-pressed={isSelected}
+                  className={`w-7 h-7 rounded-full transition-all flex items-center justify-center relative ${
+                    isSelected
+                      ? "ring-2 ring-white ring-offset-2 ring-offset-[#121418] scale-110 shadow-lg"
+                      : "hover:scale-105 opacity-80 hover:opacity-100"
+                  }`}
+                  style={{ backgroundColor: preset.swatchDark }}
+                >
+                  {isSelected && <Check className="w-3.5 h-3.5 text-black stroke-[3]" />}
+                </button>
+              );
+            })}
+            <span className="text-xs text-white/60 ml-2 font-medium">
+              {ACCENT_PRESETS.find((p) => p.id === activeAccent)?.displayName || "Olive"}
+            </span>
+          </div>
+        </div>
       </div>
 
       <div className="border-t border-white/[0.08]" />
@@ -551,6 +594,29 @@ export const PreferencesView: React.FC = () => {
             />
           </div>
         )}
+
+        {/* HUD Dock Positioning (1:1 with OverlayDockPosition in RecordingOverlay.swift) */}
+        <div className="flex items-center justify-between pt-1">
+          <div>
+            <span className="text-xs font-medium text-white/90">HUD Dock Position</span>
+            <p className="text-[11px] text-white/50">
+              Default snap placement for the floating recording companion.
+            </p>
+          </div>
+          <select
+            value={overlayDockPosition}
+            aria-label="HUD Dock Position"
+            onChange={(e) => {
+              setOverlayDockPosition(e.target.value);
+              localStorage.setItem("overlayDockPosition", e.target.value);
+            }}
+            className="bg-white/[0.06] hover:bg-white/10 border border-white/15 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none transition-all cursor-pointer w-44"
+          >
+            <option value="bottom" className="bg-[#181B20] text-white">Bottom Center (Default)</option>
+            <option value="top" className="bg-[#181B20] text-white">Top Center</option>
+            <option value="freeform" className="bg-[#181B20] text-white">Freeform (Draggable)</option>
+          </select>
+        </div>
       </div>
 
       <div className="border-t border-white/[0.08]" />

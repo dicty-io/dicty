@@ -2,14 +2,20 @@
 REM scripts\windows\build_win.bat
 REM Packages the Dicty backend into a standalone Windows executable directory using PyInstaller.
 
+setlocal
+for %%I in ("%~dp0..\..") do set "REPO_ROOT=%%~fI"
+pushd "%REPO_ROOT%" || (
+    echo [-] Failed to enter repository root directory: "%REPO_ROOT%"
+    exit /b 1
+)
 setlocal enabledelayedexpansion
 
 echo [*] Installing PyInstaller in virtual environment...
 .venv\Scripts\pip install pyinstaller
 
 echo [*] Checking for whisper.cpp native binaries...
-if exist scripts\windows\compile_whisper.bat (
-    call scripts\windows\compile_whisper.bat
+if exist "%~dp0compile_whisper.bat" (
+    call "%~dp0compile_whisper.bat"
 )
 
 echo [*] Cleaning previous build artifacts...
@@ -26,6 +32,7 @@ echo [*] Running PyInstaller packaging with dicty_engine.spec...
 
 if %ERRORLEVEL% NEQ 0 (
     echo [-] PyInstaller build failed!
+    popd
     exit /b 1
 )
 
@@ -38,7 +45,9 @@ xcopy /E /I /Y dist\dicty_engine DictyClientTauri\src-tauri\resources\dicty_engi
 
 if not exist DictyClientTauri\src-tauri\resources\dicty_engine\dicty_engine.exe (
     echo [-] Error: DictyClientTauri\src-tauri\resources\dicty_engine\dicty_engine.exe was not staged successfully!
+    popd
     exit /b 1
 )
 
 echo [+] Build complete! Standalone Windows engine is located at: dist\dicty_engine\dicty_engine.exe
+popd

@@ -1,10 +1,18 @@
 # Dicty Windows Environment Setup Script (PowerShell)
 $ErrorActionPreference = "Stop"
 
+$RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..")).Path
+$venvDir = Join-Path $RepoRoot ".venv"
+$venvPython = Join-Path $venvDir "Scripts\python.exe"
+$venvPip = Join-Path $venvDir "Scripts\pip.exe"
+$reqFile = Join-Path $RepoRoot "requirements-windows.txt"
+$tauriDir = Join-Path $RepoRoot "DictyClientTauri"
+
 Write-Host "=======================================================" -ForegroundColor Cyan
 Write-Host "          Dicty Windows Environment Setup Script        " -ForegroundColor Cyan
 Write-Host "=======================================================" -ForegroundColor Cyan
 Write-Host ""
+Write-Host "[*] Repository root: $RepoRoot" -ForegroundColor Gray
 
 # 1. Detect Python (3.10 - 3.13)
 $pythonCmd = $null
@@ -36,11 +44,8 @@ $args = if ($parts.Length -gt 1) { $parts[1..($parts.Length - 1)] + @("--version
 & $exe $args
 
 # 2. Setup .venv
-$venvPython = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
-$venvPip = Join-Path $PSScriptRoot ".venv\Scripts\pip.exe"
-
 $recreateVenv = $false
-if (Test-Path $venvPython) {
+if (Test-Path -LiteralPath $venvPython) {
     try {
         & $venvPython -c "import sys; sys.exit(0 if (3, 10) <= sys.version_info[:2] < (3, 14) else 1)"
         if ($LASTEXITCODE -ne 0) { $recreateVenv = $true }
@@ -52,16 +57,16 @@ if (Test-Path $venvPython) {
 }
 
 if ($recreateVenv) {
-    if (Test-Path (Join-Path $PSScriptRoot ".venv")) {
+    if (Test-Path -LiteralPath $venvDir) {
         Write-Host "[!] Existing .venv has an incompatible Python version. Recreating with $pythonCmd..." -ForegroundColor Yellow
-        Remove-Item -Recurse -Force (Join-Path $PSScriptRoot ".venv")
+        Remove-Item -Recurse -Force -LiteralPath $venvDir
     }
-    Write-Host "[*] Creating virtual environment at .\.venv ..." -ForegroundColor Yellow
-    $args = if ($parts.Length -gt 1) { $parts[1..($parts.Length - 1)] + @("-m", "venv", ".venv") } else { @("-m", "venv", ".venv") }
+    Write-Host "[*] Creating virtual environment at $venvDir ..." -ForegroundColor Yellow
+    $args = if ($parts.Length -gt 1) { $parts[1..($parts.Length - 1)] + @("-m", "venv", $venvDir) } else { @("-m", "venv", $venvDir) }
     & $exe $args
     Write-Host "[+] Virtual environment created." -ForegroundColor Green
 } else {
-    Write-Host "[*] Compatible virtual environment found at .\.venv." -ForegroundColor Green
+    Write-Host "[*] Compatible virtual environment found at $venvDir." -ForegroundColor Green
 }
 
 # 3. Upgrade pip & tools
@@ -69,22 +74,22 @@ Write-Host "[*] Upgrading pip, setuptools, and wheel..." -ForegroundColor Yellow
 & $venvPython -m pip install --upgrade pip setuptools wheel --quiet
 
 # 4. Install backend dependencies
-Write-Host "[*] Installing dependencies from requirements-windows.txt..." -ForegroundColor Yellow
-& $venvPip install -r (Join-Path $PSScriptRoot "requirements-windows.txt")
+Write-Host "[*] Installing dependencies from $reqFile..." -ForegroundColor Yellow
+& $venvPip install -r $reqFile
 Write-Host "[+] Python dependencies installed." -ForegroundColor Green
 
 # 5. Node.js & npm
-if (Test-Path "C:\Program Files\nodejs") {
+if (Test-Path -LiteralPath "C:\Program Files\nodejs") {
     $env:PATH = "C:\Program Files\nodejs;" + $env:PATH
 }
-if (Test-Path "$env:USERPROFILE\.cargo\bin") {
+if (Test-Path -LiteralPath "$env:USERPROFILE\.cargo\bin") {
     $env:PATH = "$env:USERPROFILE\.cargo\bin;" + $env:PATH
 }
 
 if (Get-Command node -ErrorAction SilentlyContinue) {
     Write-Host "[*] Node.js version: $(node -v)" -ForegroundColor Green
-    Write-Host "[*] Installing frontend dependencies in DictyClientTauri..." -ForegroundColor Yellow
-    Push-Location (Join-Path $PSScriptRoot "DictyClientTauri")
+    Write-Host "[*] Installing frontend dependencies in $tauriDir..." -ForegroundColor Yellow
+    Push-Location -LiteralPath $tauriDir
     npm install
     Pop-Location
     Write-Host "[+] Frontend dependencies installed." -ForegroundColor Green
@@ -109,7 +114,7 @@ Write-Host "=======================================================" -Foreground
 Write-Host "          [+] Dicty Setup Completed Successfully!       " -ForegroundColor Cyan
 Write-Host "=======================================================" -ForegroundColor Cyan
 Write-Host "Next steps:"
-Write-Host "  1. Run native desktop app: .\run_dev.ps1"
-Write-Host "  2. Run browser UI (no Rust needed): .\run_dev_web.ps1"
-Write-Host "  3. Build standalone installer: .\package_windows.bat"
+Write-Host "  1. Run native desktop app: .\scripts\windows\run_dev.ps1 (or .\run_dev.ps1)"
+Write-Host "  2. Run browser UI (no Rust needed): .\scripts\windows\run_dev_web.ps1 (or .\run_dev_web.ps1)"
+Write-Host "  3. Build standalone installer: .\scripts\windows\package_windows.bat (or .\package_windows.bat)"
 Write-Host "=======================================================" -ForegroundColor Cyan
