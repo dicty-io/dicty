@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import platform
 import time
@@ -139,14 +140,22 @@ def resolve_faster_whisper_model_name(active_model: str = None, language: str = 
         return "large-v3"
     elif "/" in active_model_lower or not active_model_lower:
         mm_check = ModelManager()
-        if mm_check.is_model_downloaded("tiny.en"):
-            return "tiny.en"
-        elif mm_check.is_model_downloaded("base.en"):
-            return "base.en"
+        if language == "en":
+            if mm_check.is_model_downloaded("tiny.en"):
+                return "tiny.en"
+            elif mm_check.is_model_downloaded("base.en"):
+                return "base.en"
+            else:
+                return "tiny.en"
         else:
-            return "tiny.en"
+            if mm_check.is_model_downloaded("base"):
+                return "base"
+            elif mm_check.is_model_downloaded("tiny"):
+                return "tiny"
+            else:
+                return "base"
     else:
-        return "base.en" if language in ["en", "auto"] else "base"
+        return "base.en" if language == "en" else "base"
 
 def prewarm_faster_whisper(target_model: str = None):
     """
@@ -974,7 +983,9 @@ class TranscribeService:
                 if language and language != "auto":
                     url += f"&language={quote_plus(language)}"
                 elif deepgram_model.startswith("nova-3"):
-                    url += "&language=multi"
+                    url += "&detect_language=true"
+                else:
+                    url += "&detect_language=true"
                 if prompt_str and deepgram_model.startswith("nova-3"):
                     for term in [t.strip() for t in prompt_str.split(",") if t.strip()][:50]:
                         url += f"&keyterm={quote_plus(term)}"
@@ -1151,9 +1162,16 @@ class TranscribeService:
                     words.append(target.strip())
             if words:
                 # Cap to 25 terms to strictly preserve Whisper's 224-token prompt limit
-                # and prevent prompt dilution or silence hallucinations
-                prompt_str = ", ".join(words[:25])
-                print(f"[*] Applying vocabulary prompt ({len(words[:25])} terms): {prompt_str}")
+                # and prevent prompt dilution or silence hallucinations.
+                # When language is 'auto', injecting an English-only prompt coerces Whisper / Deepgram
+                # to classify the audio as English and decode foreign speech (e.g. Russian) into English words.
+                # Only include vocabulary in prompt_str if language is specified or if terms are not English-only.
+                has_non_latin = any(re.search(r'[^\x00-\x7F]', w) for w in words)
+                if language != "auto" or has_non_latin:
+                    prompt_str = ", ".join(words[:25])
+                    print(f"[*] Applying vocabulary prompt ({len(words[:25])} terms): {prompt_str}")
+                else:
+                    print(f"[*] Skipping English-only vocabulary prompt for language='{language}' to preserve language auto-detection.")
         
         raw_text = ""
         

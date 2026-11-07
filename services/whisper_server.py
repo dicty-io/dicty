@@ -21,6 +21,12 @@ def get_whisper_server_cmd():
     
     mm = ModelManager()
     active_model_id = mm.get_active_model()
+    models = mm.get_available_models()
+    active_model_dict = next((m for m in models if m["id"] == active_model_id), None)
+    is_cloud_model = bool((active_model_dict and active_model_dict.get("is_cloud", False)) or ("/" in active_model_id) or active_model_id in ["whisper-1", "deepgram/nova-3"])
+    if is_cloud_model:
+        return None
+
     whisper_model_path = mm.get_model_file_path(active_model_id)
     if not whisper_model_path or not os.path.exists(whisper_model_path):
         whisper_model_path = os.path.abspath(os.path.join(MODELS_DIR, f"ggml-{active_model_id}.bin"))
@@ -30,8 +36,10 @@ def get_whisper_server_cmd():
                 whisper_model_path = cand_gguf
             else:
                 downloaded = mm.get_downloaded_models()
-                if downloaded:
-                    whisper_model_path = os.path.abspath(os.path.join(MODELS_DIR, downloaded[0]))
+                multi = [d for d in downloaded if not d.replace('.bin', '').replace('.gguf', '').endswith('.en')]
+                cand_list = multi if multi else downloaded
+                if cand_list:
+                    whisper_model_path = os.path.abspath(os.path.join(MODELS_DIR, cand_list[0]))
     
     if not os.path.exists(whisper_server_path) or not os.path.exists(whisper_model_path):
         return None
