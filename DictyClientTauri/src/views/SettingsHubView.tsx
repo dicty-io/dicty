@@ -14,9 +14,8 @@ import { AccountView } from "./AccountView";
 import { APISettingsView } from "./APISettingsView";
 import { SyncBackupView } from "./SyncBackupView";
 import { UpdatesView } from "./UpdatesView";
-import { invoke } from "@tauri-apps/api/core";
-import { engineApi } from "../services/engineApi";
 import { useAppAccent } from "../services/themeService";
+import { useUpdateAvailable } from "../services/updateService";
 
 export type SettingsSubTab =
   | "general"
@@ -63,24 +62,7 @@ export const SettingsHubView: React.FC<SettingsHubViewProps> = ({ initialSubTab 
     return "general";
   });
 
-  const [hasUpdateBadge, setHasUpdateBadge] = useState<boolean>(false);
-
-  // Check if an update is available to display badge on the Updates toolbar button
-  useEffect(() => {
-    let isMounted = true;
-    invoke<string>("get_app_version")
-      .catch(() => "1.0.0")
-      .then((ver) => engineApi.checkForUpdates(ver || "1.0.0"))
-      .then((res: any) => {
-        if (isMounted && res?.has_update) {
-          setHasUpdateBadge(true);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  const hasUpdateBadge = useUpdateAvailable();
 
   // Synchronize when initialSubTab changes from parent
   useEffect(() => {

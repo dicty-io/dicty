@@ -94,11 +94,15 @@ export const TextToVoiceView: React.FC = () => {
         if (audioRef.current) {
           audioRef.current.src = audioUrl;
           audioRef.current.playbackRate = playbackSpeed;
-          audioRef.current.play().catch((err) => {
-            console.warn("Audio playback failed:", err);
-            setIsPlaying(false);
-          });
-          setIsPlaying(true);
+          audioRef.current
+            .play()
+            .then(() => {
+              setIsPlaying(true);
+            })
+            .catch((err) => {
+              console.warn("Audio playback failed:", err);
+              setIsPlaying(false);
+            });
         }
       } else {
         // Fallback: Web Speech API synthesis if local neural TTS engine is not compiled on this host

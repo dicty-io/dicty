@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import {
   House,
   SlidersHorizontal,
@@ -15,9 +15,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { DictyLogo } from "./DictyLogo";
-import { invoke } from "@tauri-apps/api/core";
-import { engineApi } from "../services/engineApi";
 import { useAppAccent } from "../services/themeService";
+import { useUpdateAvailable } from "../services/updateService";
 
 export type ActiveTab =
   | "home"
@@ -74,23 +73,7 @@ export const Navigation: React.FC<NavigationProps> = ({
   isGeneratingArchitecture = false,
 }) => {
   const { info: accentInfo } = useAppAccent();
-  const [hasUpdateBadge, setHasUpdateBadge] = useState<boolean>(false);
-
-  useEffect(() => {
-    let isMounted = true;
-    invoke<string>("get_app_version")
-      .catch(() => "1.0.0")
-      .then((ver) => engineApi.checkForUpdates(ver || "1.0.0"))
-      .then((res: any) => {
-        if (isMounted && res?.has_update) {
-          setHasUpdateBadge(true);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  const hasUpdateBadge = useUpdateAvailable();
 
   const totalProjectBadges = stagedThoughtsCount + pendingUpdatesCount;
 

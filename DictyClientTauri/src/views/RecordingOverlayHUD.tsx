@@ -393,7 +393,7 @@ export const RecordingOverlayHUD: React.FC = () => {
   const handleToggleMicMute = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
     e?.preventDefault();
-    if (isTogglingMute) return;
+    if (isTogglingMute || !isRecording || isProcessing) return;
     const prevMuted = isMicMuted;
     const nextMuted = !prevMuted;
     const sessionAtStart = recordingSessionRef.current;
