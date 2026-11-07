@@ -257,8 +257,13 @@ if [ -n "${DEVELOPER_ID_APPLICATION}" ]; then
     DICTY_SIGNED_WITH_DEVELOPER_ID=1
 else
     # --- Local / open-source build: ad-hoc signing ---
-    echo "[*] Signing Dicty.app ad-hoc (codesign --sign -)..."
-    codesign --force --deep --options runtime ${ENTITLEMENTS_ARG} --sign - "${APP_DIR}"
+    # Explicitly set Designated Requirement to the bundle identifier so macOS TCC does not pin
+    # permissions to the ephemeral cdhash, preventing Accessibility permission revocation on updates.
+    echo "[*] Signing Dicty.app ad-hoc with persistent designated requirement (codesign --sign -)..."
+    codesign --force --deep --options runtime ${ENTITLEMENTS_ARG} \
+        -i com.antigravity.Dicty \
+        -r='designated => identifier "com.antigravity.Dicty"' \
+        --sign - "${APP_DIR}"
 fi
 
 echo "[+] Dicty.app bundle assembled and signed successfully!"

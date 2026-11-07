@@ -265,7 +265,11 @@ async def process_transcription(
             f"({target_app_bundle_id or 'no bundle id'}) -> style '{dictation_format_style}'"
         )
     llm_ms = 0.0
-    whisper_translate = (translation_method == "built_in") or translate_to_english
+    # Whisper's built-in translation task strictly translates foreign speech into English.
+    # It must only be activated if English translation was specifically requested, never when
+    # target_language is 'none' or translation is disabled.
+    is_target_en = bool(target_language and target_language.lower() in ("en", "english") and target_language.lower() not in ("none", "auto", "same", ""))
+    whisper_translate = bool(translate_to_english or (translation_method == "built_in" and is_target_en))
     transcriber = TranscribeService()
     # Let TranscribeService auto-resolve the binary and model paths internally
     # rather than strictly relying on .env which may be empty or point to a removed file.

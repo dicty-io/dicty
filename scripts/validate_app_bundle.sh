@@ -66,9 +66,12 @@ test -f "${APP_DIR}/Contents/Info.plist" || { echo "[-] Contents/Info.plist miss
 test -f "${APP_DIR}/Contents/MacOS/Dicty" || { echo "[-] Contents/MacOS/Dicty binary missing!"; exit 1; }
 test -x "${APP_DIR}/Contents/MacOS/Dicty" || { echo "[-] Contents/MacOS/Dicty is not executable!"; exit 1; }
 
-# 3. Verify code-signing sealing with ad-hoc signing
+# 3. Verify code-signing sealing with ad-hoc signing (with persistent designated requirement)
 echo "[*] Testing code-signing sealing on ${APP_DIR}..."
-codesign --force --deep --options runtime --sign - "$APP_DIR" > /dev/null 2>&1
+codesign --force --deep --options runtime \
+    -i com.antigravity.Dicty \
+    -r='designated => identifier "com.antigravity.Dicty"' \
+    --sign - "$APP_DIR" > /dev/null 2>&1
 codesign --verify --deep --strict "$APP_DIR" || {
     echo "[-] CRITICAL ERROR: Code-sign verification failed on ${APP_DIR}!"
     exit 1

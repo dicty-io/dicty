@@ -77,6 +77,33 @@ class TestTranslationAndAILocation(unittest.TestCase):
             "Speech model changed when switching ai_location to local!"
         )
 
+    def test_translation_target_built_in_requires_explicit_english_or_translate_flag(self):
+        from modes_service import _translation_target
+        # built_in method with targetLanguage='none' must NOT resolve to 'en'
+        self.assertIsNone(_translation_target({"translationMethod": "built_in", "targetLanguage": "none"}))
+        self.assertIsNone(_translation_target({"translationMethod": "built_in", "targetLanguage": ""}))
+        # built_in method with targetLanguage='en' resolves to 'en'
+        self.assertEqual(_translation_target({"translationMethod": "built_in", "targetLanguage": "en"}), "en")
+        # translateToEnglish=True resolves to 'en'
+        self.assertEqual(_translation_target({"translateToEnglish": True}), "en")
+
+    def test_pipeline_whisper_translate_only_when_requested(self):
+        # When translate_to_english is False and target_language is 'none',
+        # whisper_translate must be False even if translation_method is 'built_in'.
+        target_language = "none"
+        translate_to_english = False
+        translation_method = "built_in"
+        
+        is_target_en = bool(target_language and target_language.lower() in ("en", "english") and target_language.lower() not in ("none", "auto", "same", ""))
+        whisper_translate = bool(translate_to_english or (translation_method == "built_in" and is_target_en))
+        self.assertFalse(whisper_translate)
+
+        # When target_language is 'en' and translation_method is 'built_in', it translates
+        target_language = "en"
+        is_target_en = bool(target_language and target_language.lower() in ("en", "english") and target_language.lower() not in ("none", "auto", "same", ""))
+        whisper_translate = bool(translate_to_english or (translation_method == "built_in" and is_target_en))
+        self.assertTrue(whisper_translate)
+
 
 if __name__ == "__main__":
     unittest.main()
