@@ -121,10 +121,13 @@ export function useAppAccent() {
       const preset = (e as CustomEvent<{ preset?: AccentPreset }>).detail?.preset;
       if (preset) setAccentState(preset);
     };
+    const handleStorage = () => setAccentState(getActiveAccent());
+
     window.addEventListener("dicty:accent-color-changed", handleChanged as EventListener);
-    window.addEventListener("storage", () => setAccentState(getActiveAccent()));
+    window.addEventListener("storage", handleStorage);
     return () => {
       window.removeEventListener("dicty:accent-color-changed", handleChanged as EventListener);
+      window.removeEventListener("storage", handleStorage);
     };
   }, []);
 

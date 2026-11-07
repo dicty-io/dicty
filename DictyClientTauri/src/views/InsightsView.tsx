@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Clock,
   Sparkles,
@@ -33,7 +33,11 @@ interface LatencyMetric {
 }
 
 interface PerformanceStats {
+  total_recordings?: number;
   total_transcriptions?: number;
+  total_words?: number;
+  avg_speaking_wpm?: number;
+  avg_engine_wpm?: number;
   avg_latency_ms?: number;
   avg_whisper_ms?: number;
   avg_llm_ms?: number;
@@ -47,7 +51,7 @@ export const InsightsView: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [period, setPeriod] = useState<"day" | "week" | "month" | "all">("week");
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
       const [metricsRes, statsRes] = await Promise.all([
@@ -57,7 +61,7 @@ export const InsightsView: React.FC = () => {
 
       if (metricsRes.ok) {
         const data = await metricsRes.json();
-        const list = Array.isArray(data) ? data : data?.metrics || [];
+        const list = Array.isArray(data) ? data : data?.items || data?.metrics || [];
         setMetrics(list);
       }
 
@@ -70,13 +74,13 @@ export const InsightsView: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [period]);
 
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 8000);
     return () => clearInterval(interval);
-  }, [period]);
+  }, [fetchData]);
 
   // Derived calculations from recent metrics
   const computed = useMemo(() => {
@@ -131,9 +135,13 @@ export const InsightsView: React.FC = () => {
             title="Insights & Performance"
             description="Real-time end-to-end latency breakdowns across speech inference, LLM rewriting, and system typing."
           />
-          {stats?.total_transcriptions !== undefined && (
+          {(stats?.total_recordings !== undefined || stats?.total_transcriptions !== undefined) && (
             <div className="text-xs text-white/50 mt-1">
-              Recorded <span className="text-white font-semibold">{stats.total_transcriptions}</span> transcriptions in the current period.
+              Recorded{" "}
+              <span className="text-white font-semibold">
+                {stats.total_recordings ?? stats.total_transcriptions}
+              </span>{" "}
+              transcriptions in the current period.
             </div>
           )}
         </div>

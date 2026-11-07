@@ -14,6 +14,7 @@ import { AccountView } from "./AccountView";
 import { APISettingsView } from "./APISettingsView";
 import { SyncBackupView } from "./SyncBackupView";
 import { UpdatesView } from "./UpdatesView";
+import { invoke } from "@tauri-apps/api/core";
 import { engineApi } from "../services/engineApi";
 import { useAppAccent } from "../services/themeService";
 
@@ -67,8 +68,9 @@ export const SettingsHubView: React.FC<SettingsHubViewProps> = ({ initialSubTab 
   // Check if an update is available to display badge on the Updates toolbar button
   useEffect(() => {
     let isMounted = true;
-    engineApi
-      .checkForUpdates()
+    invoke<string>("get_app_version")
+      .catch(() => "1.0.0")
+      .then((ver) => engineApi.checkForUpdates(ver || "1.0.0"))
       .then((res: any) => {
         if (isMounted && res?.has_update) {
           setHasUpdateBadge(true);

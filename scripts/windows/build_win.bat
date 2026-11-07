@@ -32,6 +32,7 @@ echo [*] Running PyInstaller packaging with dicty_engine.spec...
 
 if %ERRORLEVEL% NEQ 0 (
     echo [-] PyInstaller build failed!
+    popd
     exit /b 1
 )
 
@@ -44,6 +45,7 @@ xcopy /E /I /Y dist\dicty_engine DictyClientTauri\src-tauri\resources\dicty_engi
 
 if not exist DictyClientTauri\src-tauri\resources\dicty_engine\dicty_engine.exe (
     echo [-] Error: DictyClientTauri\src-tauri\resources\dicty_engine\dicty_engine.exe was not staged successfully!
+    popd
     exit /b 1
 )
 

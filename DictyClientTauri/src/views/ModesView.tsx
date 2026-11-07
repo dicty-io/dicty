@@ -10,7 +10,6 @@ import {
   Search,
   X,
   Trash2,
-  RotateCcw,
   AlertTriangle,
   Wand2,
   Languages,
@@ -35,7 +34,6 @@ import {
   type ModesState,
 } from "../services/modesStore";
 import type {
-  AppRule,
   DictationFormatStyle,
   EngineMode,
   ModeCapability,
@@ -206,7 +204,6 @@ export const ModesView: React.FC<ModesViewProps> = ({ onNavigateTab }) => {
   });
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [modesSubTab, setModesSubTab] = useState<"modes" | "app_rules">("modes");
-  const [showAppRules, setShowAppRules] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
 
   useEffect(() => {
@@ -445,7 +442,6 @@ export const ModesView: React.FC<ModesViewProps> = ({ onNavigateTab }) => {
               onOpen={setSelectedProfileId}
             />
 
-            {showAppRules && <AppRulesSheet state={state} onClose={() => setShowAppRules(false)} />}
             {isCreating && (
               <NewModeSheet onClose={() => setIsCreating(false)} onCreate={createMode} />
             )}
@@ -996,68 +992,6 @@ const Sheet: React.FC<{
     </div>
   </div>
 );
-
-const AppRulesSheet: React.FC<{ state: ModesState; onClose: () => void }> = ({ state, onClose }) => {
-  const rules = state.appRules.rules;
-  return (
-    <Sheet
-      title="App rules"
-      description="Dicty uses the mode you pick when this app is in front."
-      onClose={onClose}
-    >
-      {rules.length === 0 ? (
-        <p className="text-xs text-white/45 py-6 text-center">
-          No rules yet. Add an app from a mode&rsquo;s page.
-        </p>
-      ) : (
-        <div className="space-y-2">
-          {rules.map((rule: AppRule) => (
-            <div
-              key={rule.id}
-              className="flex items-center gap-2.5 p-2.5 rounded-xl bg-white/[0.03] border border-white/10"
-            >
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium text-white truncate">
-                  {rule.display_name || rule.match.value}
-                </div>
-                <div className="text-[10px] text-white/40 truncate">{rule.match.value}</div>
-              </div>
-              <select
-                value={rule.mode_id}
-                onChange={(event) => modesStore.setAppRuleMode(rule.id, event.target.value)}
-                className="bg-black/30 border border-white/10 rounded-lg px-2 py-1 text-[11px] text-white focus:outline-none focus:border-[#5D6658] max-w-[150px]"
-              >
-                {state.engineModes.map((mode) => (
-                  <option key={mode.id} value={mode.id} className="bg-[#141716]">
-                    {mode.name}
-                  </option>
-                ))}
-                {!state.engineModes.some((mode) => mode.id === rule.mode_id) && (
-                  <option value={rule.mode_id} className="bg-[#141716]">
-                    {rule.mode_id}
-                  </option>
-                )}
-              </select>
-              <ToggleSwitch
-                size="sm"
-                checked={rule.enabled !== false}
-                onChange={(value) => modesStore.setAppRuleEnabled(rule.id, value)}
-                ariaLabel={`Enable rule for ${rule.display_name || rule.match.value}`}
-              />
-              <button
-                onClick={() => modesStore.resetAppRule(rule.id)}
-                className="p-1.5 rounded-lg text-white/45 hover:text-white hover:bg-white/10"
-                title="Reset"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </Sheet>
-  );
-};
 
 const AppPickerSheet: React.FC<{
   onPick: (bundleId: string, name: string) => void;

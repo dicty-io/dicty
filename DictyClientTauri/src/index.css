@@ -13,14 +13,14 @@
 /* Dynamic Accent Theme Global Overrides (1:1 with macOS AppAccentColor) */
 .text-\[\#87B996\],
 .text-\[\#87b996\],
-[class*="text-[#87b996]" i],
-[class*="text-[#87B996]" i],
+[class*="text-[#87b996]" i]:not([class*="/"]):not([class*="hover"]):not([class*="focus"]):not([class*="group-hover"]),
+[class*="text-[#87B996]" i]:not([class*="/"]):not([class*="hover"]):not([class*="focus"]):not([class*="group-hover"]),
 .text-sageGreen-light {
   color: var(--app-accent) !important;
 }
 
-svg[class*="text-[#87b996]" i],
-svg[class*="text-[#87B996]" i] {
+svg[class*="text-[#87b996]" i]:not([class*="/"]):not([class*="hover"]):not([class*="focus"]):not([class*="group-hover"]),
+svg[class*="text-[#87B996]" i]:not([class*="/"]):not([class*="hover"]):not([class*="focus"]):not([class*="group-hover"]) {
   color: var(--app-accent) !important;
   stroke: currentColor !important;
 }

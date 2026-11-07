@@ -461,8 +461,11 @@ export const PreferencesView: React.FC = () => {
               return (
                 <button
                   key={preset.id}
+                  type="button"
                   onClick={() => handleAccentSelect(preset.id)}
                   title={preset.displayName}
+                  aria-label={preset.displayName}
+                  aria-pressed={isSelected}
                   className={`w-7 h-7 rounded-full transition-all flex items-center justify-center relative ${
                     isSelected
                       ? "ring-2 ring-white ring-offset-2 ring-offset-[#121418] scale-110 shadow-lg"
@@ -602,6 +605,7 @@ export const PreferencesView: React.FC = () => {
           </div>
           <select
             value={overlayDockPosition}
+            aria-label="HUD Dock Position"
             onChange={(e) => {
               setOverlayDockPosition(e.target.value);
               localStorage.setItem("overlayDockPosition", e.target.value);

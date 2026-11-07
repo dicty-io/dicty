@@ -1,12 +1,11 @@
 @echo off
 setlocal
 for %%I in ("%~dp0..\..") do set "REPO_ROOT=%%~fI"
-setlocal enabledelayedexpansion
 
 echo =======================================================
 echo        Dicty Windows Production Installer Packager
 echo =======================================================
-echo [*] Repository root: %REPO_ROOT%
+echo [*] Repository root: "%REPO_ROOT%"
 
 :: 1. Verify Node.js, Rust/Cargo, and Python are available
 where node >nul 2>&1

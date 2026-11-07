@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   Volume2,
   Play,
@@ -40,12 +40,28 @@ export const TextToVoiceView: React.FC = () => {
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const currentAudioUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (currentAudioUrlRef.current) {
+        URL.revokeObjectURL(currentAudioUrlRef.current);
+        currentAudioUrlRef.current = null;
+      }
+      if ("speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
 
   const handleSpeak = async () => {
     if (isPlaying) {
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current.currentTime = 0;
+      }
+      if ("speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
       }
       setIsPlaying(false);
       return;
@@ -56,25 +72,32 @@ export const TextToVoiceView: React.FC = () => {
     setIsGenerating(true);
     try {
       // Send synthesis request to Dicty engine
-      const res = await engineFetch("/tts/synthesize", {
+      const res = await engineFetch("/tts/speak", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text: sampleText,
           voice: selectedVoice,
-          engine: activeEngine,
           speed: playbackSpeed,
-          save_history: saveToHistory,
+          save_record: saveToHistory,
         }),
       });
 
       if (res.ok) {
         const blob = await res.blob();
+        if (currentAudioUrlRef.current) {
+          URL.revokeObjectURL(currentAudioUrlRef.current);
+        }
         const audioUrl = URL.createObjectURL(blob);
+        currentAudioUrlRef.current = audioUrl;
+
         if (audioRef.current) {
           audioRef.current.src = audioUrl;
           audioRef.current.playbackRate = playbackSpeed;
-          audioRef.current.play();
+          audioRef.current.play().catch((err) => {
+            console.warn("Audio playback failed:", err);
+            setIsPlaying(false);
+          });
           setIsPlaying(true);
         }
       } else {

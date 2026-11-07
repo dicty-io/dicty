@@ -35,6 +35,7 @@ export function PageTabBar<T extends string = string>({
         return (
           <button
             key={tab.id}
+            type="button"
             role="tab"
             aria-selected={isSelected}
             onClick={() => onSelect(tab.id)}

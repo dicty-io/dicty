@@ -194,6 +194,13 @@ export const UpdatesView: React.FC = () => {
           if (matchingRelease && matchingAsset) {
             const latestTag = matchingRelease.tag_name || "";
             const cleanVersion = latestTag.replace(/^[vV]/, "");
+
+            // If the engine already reported an update for a newer version, retain that newer result
+            if (engineInfo?.latest_version && semverGt(engineInfo.latest_version, cleanVersion)) {
+              checkSucceeded = true;
+              break;
+            }
+
             const hasUpdate = semverGt(cleanVersion, versionToCompare);
 
             engineInfo = {

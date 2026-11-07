@@ -31,6 +31,7 @@ if exist "%CACHE_DIR%\whisper-cli.exe" if exist "%CACHE_DIR%\whisper-server.exe"
     copy /Y "%CACHE_DIR%\whisper-cli.exe" "%TARGET_RELEASE_DIR%\" >nul
     copy /Y "%CACHE_DIR%\whisper-server.exe" "%TARGET_RELEASE_DIR%\" >nul
     echo [+] Restored whisper binaries from runner cache successfully!
+    popd
     exit /b 0
 )
 
@@ -78,6 +79,7 @@ echo [*] Building targets (whisper-cli, whisper-server) with Release configurati
 if %ERRORLEVEL% NEQ 0 (
     echo [-] Error: Build failed!
     cd /d "%ROOT_DIR%"
+    popd
     exit /b 1
 )
 

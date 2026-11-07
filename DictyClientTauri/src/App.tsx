@@ -34,7 +34,6 @@ const VALID_TABS: ActiveTab[] = [
   "projects",
   "models",
   "settings",
-  "help",
   // Legacy / deep-link alias tabs
   "voice_queue",
   "knowledge",

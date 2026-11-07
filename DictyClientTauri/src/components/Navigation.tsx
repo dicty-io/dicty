@@ -15,6 +15,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { DictyLogo } from "./DictyLogo";
+import { invoke } from "@tauri-apps/api/core";
 import { engineApi } from "../services/engineApi";
 import { useAppAccent } from "../services/themeService";
 
@@ -77,8 +78,9 @@ export const Navigation: React.FC<NavigationProps> = ({
 
   useEffect(() => {
     let isMounted = true;
-    engineApi
-      .checkForUpdates()
+    invoke<string>("get_app_version")
+      .catch(() => "1.0.0")
+      .then((ver) => engineApi.checkForUpdates(ver || "1.0.0"))
       .then((res: any) => {
         if (isMounted && res?.has_update) {
           setHasUpdateBadge(true);

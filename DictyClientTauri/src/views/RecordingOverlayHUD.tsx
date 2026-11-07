@@ -107,6 +107,7 @@ export const RecordingOverlayHUD: React.FC = () => {
 
   const wsRef = useRef<WebSocket | null>(null);
   const wasRecordingRef = useRef<boolean>(false);
+  const recordingSessionRef = useRef<number>(0);
 
   // Sync shortcut settings across windows and from Tauri
   useEffect(() => {
@@ -242,12 +243,14 @@ export const RecordingOverlayHUD: React.FC = () => {
         if (payload.is_recording) {
           if (!wasRecordingRef.current) {
             wasRecordingRef.current = true;
+            recordingSessionRef.current += 1;
+            setIsMicMuted(false);
+            setElapsed(0);
+            setProfiles(getStoredProfiles());
           }
-          setIsMicMuted(false);
-          setElapsed(0);
-          setProfiles(getStoredProfiles());
         } else if (!payload.is_recording && wasRecordingRef.current) {
           wasRecordingRef.current = false;
+          recordingSessionRef.current += 1;
           setIsMicMuted(false);
         }
       }
@@ -267,6 +270,7 @@ export const RecordingOverlayHUD: React.FC = () => {
         setIsProcessing(true);
         if (wasRecordingRef.current) {
           wasRecordingRef.current = false;
+          recordingSessionRef.current += 1;
         }
       } else if (payload.is_recording === false) {
         setIsProcessing(false);
@@ -392,13 +396,16 @@ export const RecordingOverlayHUD: React.FC = () => {
     if (isTogglingMute) return;
     const prevMuted = isMicMuted;
     const nextMuted = !prevMuted;
+    const sessionAtStart = recordingSessionRef.current;
     setIsTogglingMute(true);
     setIsMicMuted(nextMuted);
     try {
       await engineApi.setMicMuted(nextMuted);
     } catch (err: any) {
       console.warn("Failed to toggle mic mute:", err);
-      setIsMicMuted(prevMuted);
+      if (sessionAtStart === recordingSessionRef.current && wasRecordingRef.current) {
+        setIsMicMuted(prevMuted);
+      }
       setBackendError(err?.message || "Failed to toggle microphone mute");
       setTimeout(() => setBackendError(null), 4000);
     } finally {
