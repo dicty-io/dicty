@@ -246,6 +246,32 @@ class TestBuildManifestCompleteness(unittest.TestCase):
             f"[BUNDLE SEALING] dist/Dicty.app must only contain 'Contents' at its root. Found: {entries}"
         )
 
+    def test_make_dmg_designated_requirement_configured(self):
+        """Verify that make_dmg.sh signs ad-hoc builds with persistent designated requirement."""
+        dmg_script = os.path.join(PROJECT_ROOT, "make_dmg.sh")
+        if not os.path.exists(dmg_script):
+            self.skipTest("make_dmg.sh not found")
+        with open(dmg_script, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn(
+            'designated => identifier "com.antigravity.Dicty"',
+            content,
+            "make_dmg.sh must explicitly set designated requirement for com.antigravity.Dicty to prevent TCC permission drops on updates."
+        )
+
+    def test_validate_app_bundle_designated_requirement_configured(self):
+        """Verify that validate_app_bundle.sh validates with persistent designated requirement."""
+        val_script = os.path.join(PROJECT_ROOT, "scripts", "validate_app_bundle.sh")
+        if not os.path.exists(val_script):
+            self.skipTest("scripts/validate_app_bundle.sh not found")
+        with open(val_script, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn(
+            'designated => identifier "com.antigravity.Dicty"',
+            content,
+            "validate_app_bundle.sh must sign with designated requirement for com.antigravity.Dicty."
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

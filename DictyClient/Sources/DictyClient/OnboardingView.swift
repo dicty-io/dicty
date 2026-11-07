@@ -203,25 +203,12 @@ struct PermissionsView: View {
                 description: "Required to paste text into apps & interact with your system. Only used when needed.",
                 isGranted: axAuthorized
             ) {
-                let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-                _ = AXIsProcessTrustedWithOptions(options)
+                EngineClient.promptAccessibilityPermissionAndOpenSettings()
             }
             
             if !axAuthorized {
                 Button(action: {
-                    let process = Process()
-                    process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
-                    process.arguments = ["reset", "Accessibility", "com.antigravity.Dicty"]
-                    try? process.run()
-                    process.waitUntilExit()
-                    
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-                        _ = AXIsProcessTrustedWithOptions(options)
-                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
+                    EngineClient.resetAccessibilityPermissionAndOpenSettings()
                 }) {
                     HStack(spacing: 5) {
                         Image(systemName: "arrow.counterclockwise")

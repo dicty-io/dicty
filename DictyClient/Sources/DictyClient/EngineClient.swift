@@ -3727,6 +3727,36 @@ class EngineClient: ObservableObject {
         }
     }
     
+    private static var hasPromptedAccessibilityThisSession = false
+    
+    static func promptAccessibilityPermissionIfNeeded() {
+        guard !hasPromptedAccessibilityThisSession else { return }
+        hasPromptedAccessibilityThisSession = true
+        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
+    }
+    
+    static func promptAccessibilityPermissionAndOpenSettings() {
+        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+    
+    static func resetAccessibilityPermissionAndOpenSettings() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        process.arguments = ["reset", "Accessibility", "com.antigravity.Dicty"]
+        try? process.run()
+        DispatchQueue.global(qos: .utility).async {
+            process.waitUntilExit()
+            DispatchQueue.main.async {
+                promptAccessibilityPermissionAndOpenSettings()
+            }
+        }
+    }
+    
     private func simulatePaste(backupToRestore: ClipboardBackup? = nil, onPasted: ((Bool) -> Void)? = nil) {
         let isOnboardingKey = WindowManager.onboardingWindow?.isKeyWindow == true
         if isOnboardingKey {
@@ -3735,29 +3765,8 @@ class EngineClient: ObservableObject {
         }
         
         if !AXIsProcessTrusted() {
-            let alert = NSAlert()
-            alert.messageText = "Accessibility Permission Required"
-            alert.informativeText = "Dicty needs Accessibility permissions to paste text. If you just updated Dicty, macOS may be holding a stale permission rule."
-            alert.alertStyle = .critical
-            alert.addButton(withTitle: "Open System Settings")
-            alert.addButton(withTitle: "Reset Stale Rule & Open Settings")
-            alert.addButton(withTitle: "Cancel")
-            
-            let response = alert.runModal()
-            if response == .alertSecondButtonReturn {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
-                process.arguments = ["reset", "Accessibility", "com.antigravity.Dicty"]
-                try? process.run()
-                DispatchQueue.global(qos: .utility).async {
-                    process.waitUntilExit()
-                    DispatchQueue.main.async {
-                        Self.promptAccessibilityPermissionAndOpenSettings()
-                    }
-                }
-            } else if response == .alertFirstButtonReturn {
-                Self.promptAccessibilityPermissionAndOpenSettings()
-            }
+            print("[*] simulatePaste: Accessibility permission required for auto-paste; text preserved on clipboard.")
+            Self.promptAccessibilityPermissionIfNeeded()
             onPasted?(false)
             return
         }
@@ -3808,13 +3817,7 @@ class EngineClient: ObservableObject {
         }
     }
     
-    private static func promptAccessibilityPermissionAndOpenSettings() {
-        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
-        }
-    }
+
     
     func transcribeLocalFile(url: URL, targetModel: String, language: String, targetLanguage: String, translationMethod: String? = nil, translationModel: String? = nil) async throws -> String {
         let fileTranscriptionStart = Date()

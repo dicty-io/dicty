@@ -650,6 +650,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // DEV: Force reset onboarding state (Disabled to allow flow progression)
         // UserDefaults.standard.removeObject(forKey: "hasSeenOnboarding")
         
+        // Heal stale TCC Accessibility rules from pre-stable-DR releases
+        AppDelegate.migrateAccessibilityPermissionIfNeeded()
+        
         let shouldShowOnboarding = AppDelegate.shouldPresentOnboarding()
         let isTrusted = AXIsProcessTrusted()
         let micAuthorized = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
@@ -688,6 +691,43 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
+    @MainActor
+    static func migrateAccessibilityPermissionIfNeeded() {
+        let defaults = UserDefaults.standard
+        let hasSeen = defaults.bool(forKey: "hasSeenOnboarding")
+        let hasMigrated = defaults.bool(forKey: "hasMigratedStableAccessibilityDR")
+        
+        if hasMigrated {
+            return
+        }
+        
+        // If the process is already trusted (e.g. Developer ID build or already granted), mark migrated
+        if AXIsProcessTrusted() {
+            defaults.set(true, forKey: "hasMigratedStableAccessibilityDR")
+            return
+        }
+        
+        // If the user already completed onboarding previously, but Accessibility trust is false,
+        // it indicates a stale cdhash TCC rule from a previous ad-hoc signed release.
+        // Clean the stale rule once so macOS binds cleanly to the persistent designated requirement.
+        if hasSeen {
+            defaults.set(true, forKey: "hasMigratedStableAccessibilityDR")
+            print("[*] Detected legacy ad-hoc build upgrade. Cleaning stale Accessibility TCC rule...")
+            DispatchQueue.global(qos: .utility).async {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+                process.arguments = ["reset", "Accessibility", "com.antigravity.Dicty"]
+                try? process.run()
+                process.waitUntilExit()
+                
+                DispatchQueue.main.async {
+                    let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+                    _ = AXIsProcessTrustedWithOptions(options)
+                }
+            }
+        }
+    }
+
     @MainActor
     static func shouldPresentOnboarding() -> Bool {
         let defaults = UserDefaults.standard

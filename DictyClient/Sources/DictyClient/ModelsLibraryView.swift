@@ -2745,10 +2745,13 @@ struct ShortcutsView: View {
                             .foregroundColor(.secondary)
                         Spacer()
                         Button("Grant access") {
-                            let urlString = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-                            if let url = URL(string: urlString) {
-                                NSWorkspace.shared.open(url)
-                            }
+                            EngineClient.promptAccessibilityPermissionAndOpenSettings()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        
+                        Button("Reset Stale Rule") {
+                            EngineClient.resetAccessibilityPermissionAndOpenSettings()
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
