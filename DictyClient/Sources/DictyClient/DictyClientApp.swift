@@ -493,16 +493,60 @@ class WindowManager {
     
     @MainActor
     static func runScreenshotCapture() async {
+        EngineEndpoint.shared.adoptRunningEngineToken()
         let engine = EngineClient.shared
         engine.fetchModels()
         engine.fetchHistory()
         engine.fetchDevices()
         engine.fetchStats()
+        engine.fetchSnippets()
+        engine.fetchVocabulary()
+        
+        UserDefaults.standard.set("slate", forKey: "appAccentColor")
+        
+        if engine.snippets.isEmpty {
+            engine.snippets = [
+                DictySnippet(id: "intro-email", trigger: "intro email", content: "Hey, would love to find some time to chat later this week!", aliases: nil, expand_anywhere: true),
+                DictySnippet(id: "my-linkedin", trigger: "my linkedin", content: "https://www.linkedin.com/in/kazminv", aliases: nil, expand_anywhere: true),
+                DictySnippet(id: "meeting-link", trigger: "my zoom", content: "https://zoom.us/my/dicty-room", aliases: nil, expand_anywhere: false)
+            ]
+        }
+        
+        if engine.stagedThoughts.isEmpty {
+            engine.stagedThoughts = [
+                VoiceThought(
+                    id: "thought-1",
+                    timestamp: Date().timeIntervalSince1970 - 1800,
+                    text: "Refactor audio streaming pipeline to eliminate UI thread blocking and preserve sub-100ms latency.",
+                    source: "dictation",
+                    git_branch: "feat/streaming-optimization",
+                    git_commit: nil,
+                    tags: ["architecture", "performance"],
+                    updated_at: nil
+                ),
+                VoiceThought(
+                    id: "thought-2",
+                    timestamp: Date().timeIntervalSince1970 - 7200,
+                    text: "Add automated UI screenshot capture pipeline for documentation, social posts and website assets.",
+                    source: "dictation",
+                    git_branch: "main",
+                    git_commit: nil,
+                    tags: ["documentation", "ci"],
+                    updated_at: nil
+                )
+            ]
+        }
         
         print("Waiting for engine data...")
         try? await Task.sleep(nanoseconds: 2_000_000_000)
         
-        let outDir = "/Users/vasiliikazmin/.gemini/antigravity-ide/brain/b94c08e7-e91e-4ea1-aa51-1c7f82ae4487"
+        let outDir: String = {
+            if let env = ProcessInfo.processInfo.environment["DICTY_SCREENSHOTS_DIR"], !env.isEmpty {
+                return env
+            }
+            return "/Users/vkazmin/projects/dicty/docs/screenshots"
+        }()
+        try? FileManager.default.createDirectory(atPath: outDir, withIntermediateDirectories: true)
         
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 960, height: 600),
@@ -516,56 +560,123 @@ class WindowManager {
         struct CaptureJob {
             let name: String
             let tab: Int
-            let wordsTab: String?
-            let projTab: String?
-            let histTab: Int?
-            let editMode: Bool
+            var subTab: Int? = nil
+            var wordsTab: String? = nil
+            var projTab: String? = nil
+            var histTab: Int? = nil
+            var modesTab: Int? = nil
+            var editMode: Bool = false
+            var height: Double? = nil
         }
         
         let jobs: [CaptureJob] = [
-            CaptureJob(name: "models", tab: 2, wordsTab: nil, projTab: nil, histTab: nil, editMode: false),
-            CaptureJob(name: "mode_detail", tab: 1, wordsTab: nil, projTab: nil, histTab: nil, editMode: true),
-            CaptureJob(name: "words_vocabulary", tab: 22, wordsTab: "vocabulary", projTab: nil, histTab: nil, editMode: false),
-            CaptureJob(name: "words_snippets", tab: 22, wordsTab: "snippets", projTab: nil, histTab: nil, editMode: false),
-            CaptureJob(name: "projects_repository", tab: 8, wordsTab: nil, projTab: "repository", histTab: nil, editMode: false),
-            CaptureJob(name: "projects_queue", tab: 8, wordsTab: nil, projTab: "queue", histTab: nil, editMode: false),
-            CaptureJob(name: "projects_advanced", tab: 8, wordsTab: nil, projTab: "advanced", histTab: nil, editMode: false),
-            CaptureJob(name: "history", tab: 3, wordsTab: nil, projTab: nil, histTab: 0, editMode: false)
+            CaptureJob(name: "01_home", tab: 0),
+            CaptureJob(name: "02_modes", tab: 1, modesTab: 0, editMode: false),
+            CaptureJob(name: "03_mode_detail", tab: 1, modesTab: 0, editMode: true),
+            CaptureJob(name: "04_app_rules", tab: 1, modesTab: 1, editMode: false),
+            CaptureJob(name: "05_models", tab: 2, height: 720.0),
+            CaptureJob(name: "06_history", tab: 3, histTab: 0),
+            CaptureJob(name: "07_words_vocabulary", tab: 22, wordsTab: "vocabulary"),
+            CaptureJob(name: "08_words_snippets", tab: 22, wordsTab: "snippets", height: 740.0),
+            CaptureJob(name: "09_insights", tab: 20),
+            CaptureJob(name: "10_transcribe_file", tab: 7),
+            CaptureJob(name: "11_text_to_voice", tab: 18),
+            CaptureJob(name: "12_projects_repository", tab: 8, projTab: "repository"),
+            CaptureJob(name: "13_projects_queue", tab: 8, projTab: "queue"),
+            CaptureJob(name: "14_projects_advanced", tab: 8, projTab: "advanced"),
+            CaptureJob(name: "15_settings_general", tab: 6, subTab: 6, height: 680.0),
+            CaptureJob(name: "16_settings_shortcuts", tab: 6, subTab: 4),
+            CaptureJob(name: "17_settings_api_keys", tab: 6, subTab: 11),
+            CaptureJob(name: "18_settings_integrations", tab: 6, subTab: 21),
+            CaptureJob(name: "19_settings_account", tab: 6, subTab: 16),
+            CaptureJob(name: "20_settings_sync", tab: 6, subTab: 15),
+            CaptureJob(name: "21_help_guide", tab: 99)
         ]
         
+        let w = 960.0
+        let scale: CGFloat = 2.0
+        
         for job in jobs {
+            let h = job.height ?? 620.0
+            let pixelW = Int(w * scale)
+            let pixelH = Int(h * scale)
             UserDefaults.standard.set(job.tab, forKey: "settingsTabSelection")
+            if let st = job.subTab { UserDefaults.standard.set(st, forKey: "settingsSubTabSelection") }
             if let wt = job.wordsTab { UserDefaults.standard.set(wt, forKey: "wordsTabSelection") }
             if let pt = job.projTab { UserDefaults.standard.set(pt, forKey: "projectsTabSelection") }
             if let ht = job.histTab { UserDefaults.standard.set(ht, forKey: "historyTabSelection") }
+            if let mt = job.modesTab { UserDefaults.standard.set(mt, forKey: "modesSelectedTab") }
             UserDefaults.standard.set(job.editMode, forKey: "modesEditFirstOnLaunch")
             
             for (schemeName, colorScheme) in [("dark", ColorScheme.dark), ("light", ColorScheme.light)] {
-                for (widthName, w, h) in [("min", 760.0, 520.0), ("normal", 960.0, 600.0)] {
-                    let baseView = SettingsView()
-                        .environmentObject(engine)
-                        .environmentObject(UpdateChecker.shared)
-                        .preferredColorScheme(colorScheme)
-                        .background(colorScheme == .dark ? Color(NSColor(red: 0.12, green: 0.12, blue: 0.13, alpha: 1.0)) : Color(NSColor(red: 0.96, green: 0.96, blue: 0.97, alpha: 1.0)))
-                        .frame(width: w, height: h)
-                    
-                    let hosting = NSHostingView(rootView: baseView)
-                    hosting.frame = NSRect(x: 0, y: 0, width: w, height: h)
-                    window.setContentSize(NSSize(width: w, height: h))
-                    window.contentView = hosting
-                    window.layoutIfNeeded()
-                    
-                    try? await Task.sleep(nanoseconds: 150_000_000)
-                    
-                    if let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) {
-                        hosting.cacheDisplay(in: hosting.bounds, to: rep)
-                        if let pngData = rep.representation(using: .png, properties: [:]) {
-                            let filename = "\(job.name)_\(widthName)_\(schemeName).png"
-                            let path = "\(outDir)/\(filename)"
-                            try? pngData.write(to: URL(fileURLWithPath: path))
-                            print("RENDERED_IMAGE: \(filename)")
-                        }
+                let baseView = SettingsView()
+                    .environmentObject(engine)
+                    .environmentObject(UpdateChecker.shared)
+                    .preferredColorScheme(colorScheme)
+                    .background(colorScheme == .dark ? Color(NSColor(red: 0.12, green: 0.12, blue: 0.13, alpha: 1.0)) : Color(NSColor(red: 0.96, green: 0.96, blue: 0.97, alpha: 1.0)))
+                    .frame(width: w, height: h)
+                
+                let chromeView = ZStack(alignment: .topLeading) {
+                    baseView
+                    HStack(spacing: 8) {
+                        Circle().fill(Color(red: 1.0, green: 0.36, blue: 0.34)).frame(width: 12, height: 12)
+                        Circle().fill(Color(red: 1.0, green: 0.75, blue: 0.18)).frame(width: 12, height: 12)
+                        Circle().fill(Color(red: 0.16, green: 0.79, blue: 0.28)).frame(width: 12, height: 12)
                     }
+                    .padding(.leading, 18)
+                    .padding(.top, 14)
+                }
+                
+                let hosting = NSHostingView(rootView: chromeView)
+                hosting.frame = NSRect(x: 0, y: 0, width: w, height: h)
+                window.setContentSize(NSSize(width: w, height: h))
+                window.contentView = hosting
+                window.layoutIfNeeded()
+                
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                
+                if let rep = NSBitmapImageRep(
+                    bitmapDataPlanes: nil,
+                    pixelsWide: pixelW,
+                    pixelsHigh: pixelH,
+                    bitsPerSample: 8,
+                    samplesPerPixel: 4,
+                    hasAlpha: true,
+                    isPlanar: false,
+                    colorSpaceName: .deviceRGB,
+                    bytesPerRow: 0,
+                    bitsPerPixel: 0
+                ) {
+                    rep.size = NSSize(width: w, height: h)
+                    hosting.cacheDisplay(in: hosting.bounds, to: rep)
+                    if let pngData = rep.representation(using: .png, properties: [:]) {
+                        let filename = "\(job.name)_\(schemeName).png"
+                        let path = "\(outDir)/\(filename)"
+                        try? pngData.write(to: URL(fileURLWithPath: path))
+                        print("RENDERED_IMAGE: \(filename) (pixels: \(pixelW)x\(pixelH))")
+                    }
+                }
+            }
+        }
+        
+        let picturesDir = URL(fileURLWithPath: outDir).deletingLastPathComponent().appendingPathComponent("pictures").path
+        if FileManager.default.fileExists(atPath: picturesDir) {
+            let pictureSync: [(source: String, dest: String)] = [
+                ("02_modes_dark.png", "modes.png"),
+                ("04_app_rules_dark.png", "app-rules.png"),
+                ("05_models_dark.png", "models.png"),
+                ("08_words_snippets_dark.png", "snippets.png"),
+                ("12_projects_repository_dark.png", "projects.png"),
+                ("15_settings_general_dark.png", "appearance.png"),
+                ("18_settings_integrations_dark.png", "integrations.png")
+            ]
+            for sync in pictureSync {
+                let srcPath = "\(outDir)/\(sync.source)"
+                let dstPath = "\(picturesDir)/\(sync.dest)"
+                if FileManager.default.fileExists(atPath: srcPath) {
+                    try? FileManager.default.removeItem(atPath: dstPath)
+                    try? FileManager.default.copyItem(atPath: srcPath, toPath: dstPath)
+                    print("SYNCED_PICTURE: \(sync.dest)")
                 }
             }
         }

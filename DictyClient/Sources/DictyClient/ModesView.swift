@@ -13,7 +13,7 @@ struct ModesView: View {
     @State private var isCreatingNew = false
     @State private var showResetConfirm = false
     @State private var showAppRules = false
-    @State private var selectedTab: Int = 0 // 0 = Modes, 1 = App Rules
+    @AppStorage("modesSelectedTab") private var selectedTab: Int = 0 // 0 = Modes, 1 = App Rules
 
     let availableIcons = [
         "mic.fill", "book.fill", "terminal.fill", "person.2.fill",
