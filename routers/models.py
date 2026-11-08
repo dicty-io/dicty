@@ -19,6 +19,9 @@ router = APIRouter()
 
 @router.get("/models")
 async def get_models():
+    """
+    List all available speech and text models, their installation status, and disk sizes.
+    """
     try:
         models = model_manager.get_available_models()
         for m in models:
@@ -39,6 +42,9 @@ async def get_models():
 
 @router.get("/models/active")
 async def get_active_model():
+    """
+    Return the currently active speech-to-text and text models.
+    """
     return {
         "active_model": model_manager.get_active_model(),
         "active_text_model": model_manager.get_active_text_model(),
@@ -46,6 +52,9 @@ async def get_active_model():
 
 @router.get("/models/active_text")
 async def get_active_text_model():
+    """
+    Return the currently active text model for post-processing and summarization.
+    """
     return {"active_text_model": model_manager.get_active_text_model()}
 
 _active_text_model_lock = asyncio.Lock()
@@ -219,6 +228,9 @@ async def get_openrouter_models(force: bool = False, sort: Optional[str] = None)
 
 @router.delete("/models/{model_id:path}")
 async def delete_model(model_id: str):
+    """
+    Delete a downloaded local model from disk and update server state if it was active.
+    """
     was_active = (model_id == model_manager.get_active_model())
     if was_active:
         stop_whisper_server()
@@ -240,11 +252,17 @@ async def delete_model(model_id: str):
 
 @router.post("/models/download/cancel")
 async def cancel_download_model(model_id: str):
+    """
+    Cancel an in-progress model download.
+    """
     model_manager.cancel_download(model_id)
     return {"status": "cancelled", "model_id": model_id}
 
 @router.post("/models/download/{model_id}")
 async def download_model(model_id: str, quality: str = "q5_0"):
+    """
+    Initiate downloading a model from HuggingFace to local storage.
+    """
     if model_manager.is_model_downloaded(model_id):
         # Don't overwrite the recorded quality: the file on disk didn't change
         model_manager.download_progress[model_id] = 100.0
