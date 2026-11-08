@@ -317,11 +317,13 @@ class SegmentedBatchSession(StreamSession):
 
 
 def dicty_cloud_url() -> str:
+    """Return the base URL for Dicty Cloud relay endpoints."""
     import os
     return os.getenv("DICTY_CLOUD_URL", "https://dicty-backend.dicty-backend.workers.dev")
 
 
 def dicty_cloud_token() -> Optional[str]:
+    """Retrieve the active Dicty Cloud authentication JWT token from session storage."""
     try:
         import auth
         session = auth.SecureAuthManager.get_session()

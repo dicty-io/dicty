@@ -272,9 +272,11 @@ async def download_model(model_id: str, quality: str = "q5_0"):
     telemetry.track("model_download_started", {"model_id": model_id, "quality": quality})
 
     def _on_progress(m_id, pct):
+        """Log model download progress percentage."""
         print(f"[{m_id}] Download ({quality}): {pct:.2f}%")
         
     def _on_complete(m_id, success):
+        """Handle model download completion, emit telemetry, and start server if loaded."""
         print(f"[{m_id}] Download Complete: {success}")
         telemetry.track("model_download_completed", {"model_id": m_id, "quality": quality, "success": success})
         if success and whisper_server.keep_model_loaded:
@@ -285,10 +287,12 @@ async def download_model(model_id: str, quality: str = "q5_0"):
 
 @router.get("/models/download/progress")
 async def get_download_progress():
+    """Retrieve current download progress percentage for all downloading models."""
     return {"progress": model_manager.download_progress}
 
 @router.post("/models/open")
 async def open_models_folder():
+    """Open the local models storage directory in the native file manager (Finder/Explorer)."""
     from model_manager import MODELS_DIR
     path = os.path.normpath(os.path.abspath(MODELS_DIR))
     os.makedirs(path, exist_ok=True)
