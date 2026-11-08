@@ -96,6 +96,7 @@ This is the local storage folder for Dicty voice recognition and text AI models.
 ensure_models_dir_setup()
 
 FALLBACK_MODELS = [
+    {"id": "deepgram/nova-3", "name": "Nova 3", "size": "Cloud", "speed": 1.0, "accuracy": 0.82, "url": "", "is_cloud": True, "description": "High-accuracy, lowest-latency real-time cloud speech-to-text model powered by Deepgram."},
     {"id": "openai/whisper-1", "name": "Cloud Whisper 1", "size": "Cloud", "speed": 1.0, "accuracy": 0.99, "url": "", "is_cloud": True, "description": "Official OpenAI Whisper cloud API for ultra-high accuracy speech recognition across all languages."},
     {"id": "nvidia/parakeet-tdt-0.6b-v3", "name": "Nvidia Parakeet", "size": "Cloud", "speed": 1.0, "accuracy": 0.98, "url": "", "is_cloud": True, "description": "Blazing-fast cloud speech recognition powered by Nvidia Parakeet architecture."},
     {"id": "tiny.en", "name": "Nano", "size": "31 MB", "speed": 1.0, "accuracy": 0.4, "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin", "description": "Ultra-fast, lightweight English model with minimal memory footprint.", "is_cloud": False},

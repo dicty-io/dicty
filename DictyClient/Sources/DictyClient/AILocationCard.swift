@@ -467,7 +467,9 @@ struct AILocationCard: View {
             Task {
                 await store.setAILocation("local")
                 await MainActor.run {
-                    targetModeTag = nil
+                    if targetModeTag == "local" {
+                        targetModeTag = nil
+                    }
                 }
             }
         } else if tag == "cloud" {
@@ -481,7 +483,9 @@ struct AILocationCard: View {
             Task {
                 await store.setAILocation("cloud_when_better")
                 await MainActor.run {
-                    targetModeTag = nil
+                    if targetModeTag == "cloud" {
+                        targetModeTag = nil
+                    }
                 }
             }
         } else if tag == "custom" {

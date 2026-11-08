@@ -121,10 +121,12 @@ async def set_active_model(model_id: str):
         telemetry.track("model_switched", {"model_id": model_id})
     elif manager.is_model_downloaded(model_id):
         if whisper_server.keep_model_loaded:
-            stop_whisper_server()
-            import time
-            time.sleep(1)
-            start_whisper_server()
+            def _restart_whisper():
+                stop_whisper_server()
+                import time
+                time.sleep(1)
+                start_whisper_server()
+            await asyncio.to_thread(_restart_whisper)
         telemetry.track("model_switched", {"model_id": model_id})
 
         # Trigger async prewarm and CUDA warmup in background for instant first utterance
@@ -280,7 +282,8 @@ async def download_model(model_id: str, quality: str = "q5_0"):
         print(f"[{m_id}] Download Complete: {success}")
         telemetry.track("model_download_completed", {"model_id": m_id, "quality": quality, "success": success})
         if success and whisper_server.keep_model_loaded:
-            start_whisper_server()
+            if m_id == model_manager.get_active_model():
+                start_whisper_server()
         
     model_manager.start_download(model_id, quality, _on_progress, _on_complete)
     return {"status": "download_started", "model_id": model_id, "quality": quality}

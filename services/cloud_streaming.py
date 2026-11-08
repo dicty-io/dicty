@@ -326,8 +326,7 @@ def dicty_cloud_token() -> Optional[str]:
     """Retrieve the active Dicty Cloud authentication JWT token from session storage."""
     try:
         import auth
-        session = auth.SecureAuthManager.get_session()
-        return (session or {}).get("jwt_token") or None
+        return auth.SecureAuthManager.get_jwt_token() or None
     except Exception:
         return None
 
