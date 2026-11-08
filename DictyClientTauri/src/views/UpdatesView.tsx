@@ -92,25 +92,23 @@ export const UpdatesView: React.FC = () => {
     }
 
     let checkSucceeded = false;
+    let engineInfo: UpdateInfo | null = null;
 
     // 1. Try querying local engine
     try {
       const res = await engineApi.checkForUpdates(versionToCompare, targetRepo, targetToken);
       if (res && res.latest_version) {
         const hasUpdate = Boolean(res.has_update || semverGt(res.latest_version, versionToCompare));
-        setUpdateInfo({
+        engineInfo = {
           ...res,
           has_update: hasUpdate,
-        });
+        };
+        setUpdateInfo(engineInfo);
         if (res.error && !res.latest_version) {
           setErrorMsg(res.error);
         } else {
-          // If the engine reports has_update, but provided no download_url,
-          // the engine may be an older build that only checked /releases/latest.
-          // Don't treat check as resolved; let direct GitHub fetch find the OS-specific installer.
-          if (!hasUpdate || res.download_url) {
-            checkSucceeded = true;
-          }
+          checkSucceeded = true;
+          setErrorMsg(null);
         }
       }
     } catch (engineErr) {
@@ -118,7 +116,7 @@ export const UpdatesView: React.FC = () => {
     }
 
     // 2. Fallback to direct GitHub API fetch if local engine was offline / starting / missing download_url
-    if (!checkSucceeded) {
+    if (!checkSucceeded || (engineInfo?.has_update && !engineInfo?.download_url)) {
       const isWindows = navigator.userAgent.includes("Windows") || navigator.platform.includes("Win");
       const isMac = navigator.userAgent.includes("Mac") || navigator.platform.includes("Mac");
 
@@ -164,7 +162,7 @@ export const UpdatesView: React.FC = () => {
       }
 
       for (const url of reposToTry) {
-        if (checkSucceeded) break;
+        if (checkSucceeded && engineInfo?.download_url) break;
         try {
           const ghRes = await fetch(url, { headers: ghHeaders });
           if (!ghRes.ok) continue;
@@ -196,9 +194,16 @@ export const UpdatesView: React.FC = () => {
           if (matchingRelease && matchingAsset) {
             const latestTag = matchingRelease.tag_name || "";
             const cleanVersion = latestTag.replace(/^[vV]/, "");
+
+            // If the engine already reported an update for a newer version, retain that newer result
+            if (engineInfo?.latest_version && semverGt(engineInfo.latest_version, cleanVersion)) {
+              checkSucceeded = true;
+              break;
+            }
+
             const hasUpdate = semverGt(cleanVersion, versionToCompare);
 
-            setUpdateInfo({
+            engineInfo = {
               has_update: hasUpdate,
               latest_version: cleanVersion || versionToCompare,
               current_version: versionToCompare,
@@ -210,11 +215,12 @@ export const UpdatesView: React.FC = () => {
               published_at: matchingRelease.published_at,
               html_url: matchingRelease.html_url || `https://github.com/${targetRepo}/releases`,
               error: null,
-            });
+            };
+            setUpdateInfo(engineInfo);
             setErrorMsg(null);
             checkSucceeded = true;
             break;
-          } else {
+          } else if (!checkSucceeded) {
             // Releases exist, but none contained an installer for current OS
             const topRel = releasesList[0];
             const latestTag = topRel.tag_name || "";
@@ -248,6 +254,7 @@ export const UpdatesView: React.FC = () => {
       const nowStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
       setLastCheckedTime(nowStr);
       localStorage.setItem("dicty_last_update_check", nowStr);
+      setErrorMsg(null);
     } else {
       setErrorMsg("Unable to reach GitHub update servers. Please check your internet connection.");
     }

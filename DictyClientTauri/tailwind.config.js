@@ -9,9 +9,9 @@ export default {
     extend: {
       colors: {
         sageGreen: {
-          DEFAULT: "#5D6658",
-          light: "#87B996",
-          dark: "#41493E",
+          DEFAULT: "var(--app-accent-active, #5D6658)",
+          light: "var(--app-accent, #87B996)",
+          dark: "var(--app-accent-active, #41493E)",
         },
         stylishGreen: {
           DEFAULT: "#278C40",

@@ -2,6 +2,12 @@
 REM scripts\windows\compile_whisper.bat
 REM Compiles whisper.cpp for Windows using CMake and MSVC with AVX2/CUDA support.
 
+setlocal
+for %%I in ("%~dp0..\..") do set "REPO_ROOT=%%~fI"
+pushd "%REPO_ROOT%" || (
+    echo [-] Failed to enter repository root directory: "%REPO_ROOT%"
+    exit /b 1
+)
 setlocal enabledelayedexpansion
 
 REM 1. Resolve persistent runner cache directory
@@ -44,6 +50,7 @@ if exist "%CACHE_DIR%\whisper-cli.exe" if exist "%CACHE_DIR%\whisper-server.exe"
     copy /Y "%CACHE_DIR%\whisper-cli.exe" "bin\" >nul
     copy /Y "%CACHE_DIR%\whisper-server.exe" "bin\" >nul
     echo [+] Restored whisper binaries from runner cache successfully!
+    popd
     exit /b 0
 )
 
@@ -95,6 +102,7 @@ echo [*] Building targets (whisper-cli, whisper-server) with Release configurati
 if %ERRORLEVEL% NEQ 0 (
     echo [-] Error: Build failed!
     cd /d "%ROOT_DIR%"
+    popd
     exit /b 1
 )
 
@@ -115,3 +123,4 @@ copy /Y "%TARGET_RELEASE_DIR%\whisper-server.exe" "%CACHE_DIR%\" >nul
 echo [+] Saved compiled whisper.cpp binaries to runner cache (%CACHE_DIR%)!
 
 cd /d "%ROOT_DIR%"
+popd

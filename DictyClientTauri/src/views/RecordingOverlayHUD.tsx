@@ -13,6 +13,8 @@ import {
   Sparkles,
   Check,
   RotateCcw,
+  Mic,
+  MicOff,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -41,6 +43,10 @@ export const RecordingOverlayHUD: React.FC = () => {
   const [isMini, setIsMini] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [volumePulse, setVolumePulse] = useState(0.6);
+  const [isMicMuted, setIsMicMuted] = useState(false);
+  const [isTogglingMute, setIsTogglingMute] = useState(false);
+
+  const isMeetingMode = activeMode === "meeting" || activeMode === "focused_meeting";
 
   // App rules & resolved mode state
   const [targetAppId, setTargetAppId] = useState<string | null>(null);
@@ -101,6 +107,7 @@ export const RecordingOverlayHUD: React.FC = () => {
 
   const wsRef = useRef<WebSocket | null>(null);
   const wasRecordingRef = useRef<boolean>(false);
+  const recordingSessionRef = useRef<number>(0);
 
   // Sync shortcut settings across windows and from Tauri
   useEffect(() => {
@@ -236,11 +243,15 @@ export const RecordingOverlayHUD: React.FC = () => {
         if (payload.is_recording) {
           if (!wasRecordingRef.current) {
             wasRecordingRef.current = true;
+            recordingSessionRef.current += 1;
+            setIsMicMuted(false);
+            setElapsed(0);
+            setProfiles(getStoredProfiles());
           }
-          setElapsed(0);
-          setProfiles(getStoredProfiles());
         } else if (!payload.is_recording && wasRecordingRef.current) {
           wasRecordingRef.current = false;
+          recordingSessionRef.current += 1;
+          setIsMicMuted(false);
         }
       }
       if (typeof payload.is_paused === "boolean") {
@@ -259,11 +270,13 @@ export const RecordingOverlayHUD: React.FC = () => {
         setIsProcessing(true);
         if (wasRecordingRef.current) {
           wasRecordingRef.current = false;
+          recordingSessionRef.current += 1;
         }
       } else if (payload.is_recording === false) {
         setIsProcessing(false);
         setPartialText("");
         setElapsed(0);
+        setIsMicMuted(false);
       }
     }).then((fn) => {
       unlisten = fn;
@@ -374,6 +387,29 @@ export const RecordingOverlayHUD: React.FC = () => {
     } catch (err) {
       console.error("Failed to toggle pause:", err);
       setIsPaused(!nextPaused);
+    }
+  };
+
+  const handleToggleMicMute = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    e?.preventDefault();
+    if (isTogglingMute || !isRecording || isProcessing) return;
+    const prevMuted = isMicMuted;
+    const nextMuted = !prevMuted;
+    const sessionAtStart = recordingSessionRef.current;
+    setIsTogglingMute(true);
+    setIsMicMuted(nextMuted);
+    try {
+      await engineApi.setMicMuted(nextMuted);
+    } catch (err: any) {
+      console.warn("Failed to toggle mic mute:", err);
+      if (sessionAtStart === recordingSessionRef.current && wasRecordingRef.current) {
+        setIsMicMuted(prevMuted);
+      }
+      setBackendError(err?.message || "Failed to toggle microphone mute");
+      setTimeout(() => setBackendError(null), 4000);
+    } finally {
+      setIsTogglingMute(false);
     }
   };
 
@@ -628,6 +664,22 @@ export const RecordingOverlayHUD: React.FC = () => {
                 <Square className="w-3 h-3 fill-white text-white" />
               </button>
 
+              {isMeetingMode && (
+                <button
+                  type="button"
+                  onClick={handleToggleMicMute}
+                  disabled={isTogglingMute || isProcessing}
+                  title={isMicMuted ? "Unmute Microphone" : "Mute Microphone (Record system audio only)"}
+                  className={`w-6 h-6 rounded-full flex items-center justify-center transition-all ${
+                    isMicMuted
+                      ? "bg-amber-500/35 text-amber-300 border border-amber-500/50"
+                      : "bg-white/10 hover:bg-white/20 text-white"
+                  }`}
+                >
+                  {isMicMuted ? <MicOff className="w-3 h-3 text-amber-300" /> : <Mic className="w-3 h-3" />}
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => handleToggleMini(false)}
@@ -684,6 +736,11 @@ export const RecordingOverlayHUD: React.FC = () => {
                   <span className="text-[11px] font-mono text-white/80 ml-1">
                     {formatTime(elapsed)}
                   </span>
+                  {isMicMuted && (
+                    <span title="Microphone Muted (System Audio Only)">
+                      <MicOff className="w-3 h-3 text-amber-300 ml-1 flex-shrink-0" />
+                    </span>
+                  )}
                 </div>
               )}
 
@@ -883,6 +940,28 @@ export const RecordingOverlayHUD: React.FC = () => {
                 </>
               )}
             </button>
+
+            {/* Selective Meeting Mode Mic Mute Toggle */}
+            {isMeetingMode && (
+              <button
+                type="button"
+                onClick={handleToggleMicMute}
+                disabled={isProcessing || isTogglingMute}
+                title={isMicMuted ? "Unmute Microphone" : "Mute Microphone (Record system audio only)"}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all whitespace-nowrap ${
+                  isMicMuted
+                    ? "bg-amber-500/35 text-amber-300 border border-amber-500/60 hover:bg-amber-500/50 shadow-[0_0_10px_rgba(245,158,11,0.25)]"
+                    : "bg-white/10 text-white/90 hover:bg-white/15"
+                }`}
+              >
+                {isMicMuted ? (
+                  <MicOff className="w-3 h-3 text-amber-300 flex-shrink-0" />
+                ) : (
+                  <Mic className="w-3 h-3 text-white flex-shrink-0" />
+                )}
+                <span>{isMicMuted ? "Unmute Mic" : "Mute Mic"}</span>
+              </button>
+            )}
 
             {/* Cancel Button */}
             <button

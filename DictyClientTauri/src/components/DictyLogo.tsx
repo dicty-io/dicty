@@ -17,7 +17,7 @@ export const DictyLogo: React.FC<DictyLogoProps> = ({
       height={size}
       className={className}
     >
-      <rect width="1024" height="1024" rx="230" ry="230" fill="#506658" />
+      <rect width="1024" height="1024" rx="230" ry="230" fill="var(--app-accent-active, #506658)" />
       <g
         fill="none"
         stroke="#ffffff"

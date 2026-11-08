@@ -26,15 +26,19 @@ Run the automated setup script to configure Python virtual environment, install 
 **Using Command Prompt:**
 ```cmd
 setup_windows.bat
+:: or from scripts directory:
+scripts\windows\setup_windows.bat
 ```
 *Or using PowerShell:*
 ```powershell
 .\setup_windows.ps1
+# or from scripts directory:
+.\scripts\windows\setup_windows.ps1
 ```
 
 This script:
 1. Detects compatible Python (3.10 - 3.13).
-2. Creates `.venv` and upgrades pip tooling.
+2. Creates `.venv` at repository root and upgrades pip tooling.
 3. Installs backend dependencies from `requirements-windows.txt`.
 4. Installs frontend dependencies in `DictyClientTauri` via `npm install`.
 5. Checks NVIDIA GPU CUDA acceleration status.
@@ -49,10 +53,14 @@ You have two workflows to run Dicty in development:
 Runs the desktop window with hot-module reloading (HMR):
 ```cmd
 run_dev.bat
+:: or
+scripts\windows\run_dev.bat
 ```
 *Or in PowerShell:*
 ```powershell
 .\run_dev.ps1
+# or
+.\scripts\windows\run_dev.ps1
 ```
 *(If `.venv` or `node_modules` is missing, it will automatically run setup first).*
 
@@ -60,10 +68,14 @@ run_dev.bat
 If you do not have Rust or Cargo installed, you can develop and use the entire UI in your web browser:
 ```cmd
 run_dev_web.bat
+:: or
+scripts\windows\run_dev_web.bat
 ```
 *Or in PowerShell:*
 ```powershell
 .\run_dev_web.ps1
+# or
+.\scripts\windows\run_dev_web.ps1
 ```
 - Starts the Python backend engine on `http://127.0.0.1:8075`.
 - Starts the Vite frontend on `http://localhost:1420` and opens it in your default browser.
@@ -75,6 +87,8 @@ run_dev_web.bat
 To package a standalone Windows installer (`.exe`) identical to release builds:
 ```cmd
 package_windows.bat
+:: or
+scripts\windows\package_windows.bat
 ```
 The output installer will be created at:
 `DictyClientTauri\src-tauri\target\release\bundle\nsis\Dicty_<version>_x64-setup.exe`

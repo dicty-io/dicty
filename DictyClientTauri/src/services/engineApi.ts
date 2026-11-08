@@ -44,6 +44,19 @@ export const engineApi = {
     return res.json();
   },
 
+  async setMicMuted(isMuted: boolean) {
+    const res = await engineFetch(`/recording/mute?is_muted=${isMuted}`, { method: "POST" });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.detail || `Mute failed (HTTP ${res.status})`);
+    }
+    const data = await res.json();
+    if (data?.status === "not_recording") {
+      throw new Error("Cannot toggle mute: not recording");
+    }
+    return data;
+  },
+
   // --- Audio Devices ---
   async getDevices() {
     const res = await engineFetch(`/devices`);

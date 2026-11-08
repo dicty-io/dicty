@@ -20,7 +20,14 @@ import {
   ChevronUp,
   ArrowRight,
   X,
+  BookOpen,
+  Inbox,
+  Library,
 } from "lucide-react";
+import { VoiceQueueView } from "./VoiceQueueView";
+import { KnowledgeBaseView } from "./KnowledgeBaseView";
+import { PendingUpdatesView } from "./PendingUpdatesView";
+import { PageTabBar } from "../components/PageTabBar";
 import { OpenRouterExplorerModal } from "../components/OpenRouterExplorerModal";
 import { engineApi } from "../services/engineApi";
 import { GitHubIcon, GitLabIcon, BitbucketIcon } from "../components/BrandIcons";
@@ -64,11 +71,44 @@ const REASONING_MODELS = [
   { id: "custom", name: "Custom Model ID..." },
 ];
 
+export type ProjectsSubTab = "repository" | "queue" | "knowledge" | "pending_updates";
+
 interface ProjectsViewProps {
   onNavigateTab?: (tab: ActiveTab) => void;
+  initialSubTab?: ProjectsSubTab;
+  stagedThoughtsCount?: number;
+  pendingUpdatesCount?: number;
 }
 
-export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigateTab }) => {
+export const ProjectsView: React.FC<ProjectsViewProps> = ({
+  onNavigateTab,
+  initialSubTab,
+  stagedThoughtsCount = 0,
+  pendingUpdatesCount = 0,
+}) => {
+  const [projectsTab, setProjectsTab] = useState<ProjectsSubTab>(() => {
+    if (initialSubTab) return initialSubTab;
+    try {
+      const saved = localStorage.getItem("dicty_projects_tab") as ProjectsSubTab | null;
+      if (saved && ["repository", "queue", "knowledge", "pending_updates"].includes(saved)) {
+        return saved;
+      }
+    } catch {}
+    return "repository";
+  });
+
+  useEffect(() => {
+    if (initialSubTab) {
+      setProjectsTab(initialSubTab);
+    }
+  }, [initialSubTab]);
+
+  const selectProjectsTab = (tab: ProjectsSubTab) => {
+    setProjectsTab(tab);
+    try {
+      localStorage.setItem("dicty_projects_tab", tab);
+    } catch {}
+  };
   // Provider state
   const [gitProvider, setGitProvider] = useState<"github" | "gitlab" | "bitbucket">(() => {
     return (localStorage.getItem("gitProvider") as any) || "github";
@@ -896,24 +936,56 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigateTab }) => 
   const isCustomModel = !REASONING_MODELS.slice(0, -1).some((m) => m.id === llmModel);
 
   return (
-    <div className="flex-1 overflow-y-auto p-8 max-w-4xl mx-auto space-y-7 select-none">
-      {/* Page Header (1:1 with ProjectSettingsView.swift) */}
-      <div className="space-y-1.5 border-b border-white/10 pb-5">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shadow-md shadow-indigo-500/10">
-            <FolderGit2 className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold text-white tracking-tight">Projects</h1>
-              <FeatureHelpButton topic="projects" label="Projects & Librarian Guide" />
-            </div>
-            <p className="text-xs text-white/50">
-              Select the target repository you are currently working on. The Librarian will sync documentation with this project.
-            </p>
-          </div>
-        </div>
+    <div className="flex-1 flex flex-col min-h-0 min-w-0 select-none">
+      {/* Top Segmented Subtabs (1:1 with ProjectSettingsView.swift) */}
+      <div className="px-8 pt-5 pb-3 border-b border-white/10 shrink-0 bg-black/20 backdrop-blur-md">
+        <PageTabBar
+          selection={projectsTab}
+          onSelect={selectProjectsTab}
+          tabs={[
+            { id: "repository", label: "Repository", icon: FolderGit2 },
+            {
+              id: "queue",
+              label: "Voice Queue",
+              icon: Library,
+              badge: stagedThoughtsCount > 0 ? stagedThoughtsCount : undefined,
+              badgeVariant: "indigo",
+            },
+            { id: "knowledge", label: "Knowledge Base", icon: BookOpen },
+            {
+              id: "pending_updates",
+              label: "Pending Updates",
+              icon: Inbox,
+              badge: pendingUpdatesCount > 0 ? pendingUpdatesCount : undefined,
+              badgeVariant: "emerald",
+            },
+          ]}
+        />
       </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {projectsTab === "queue" && <VoiceQueueView />}
+        {projectsTab === "knowledge" && <KnowledgeBaseView />}
+        {projectsTab === "pending_updates" && <PendingUpdatesView />}
+        {projectsTab === "repository" && (
+          <div className="p-8 max-w-4xl mx-auto space-y-7">
+            {/* Page Header (1:1 with ProjectSettingsView.swift) */}
+            <div className="space-y-1.5 border-b border-white/10 pb-5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shadow-md shadow-indigo-500/10">
+                  <FolderGit2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h1 className="text-2xl font-bold text-white tracking-tight">Projects</h1>
+                    <FeatureHelpButton topic="projects" label="Projects & Librarian Guide" />
+                  </div>
+                  <p className="text-xs text-white/50">
+                    Select the target repository you are currently working on. The Librarian will sync documentation with this project.
+                  </p>
+                </div>
+              </div>
+            </div>
 
       {/* Git Provider Segmented Picker */}
       <div className="space-y-4">
@@ -1604,9 +1676,12 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigateTab }) => 
               </div>
 
               <div className="flex items-center gap-2 flex-shrink-0">
-                {archGenStatus === "completed" && onNavigateTab && (
+                {archGenStatus === "completed" && (
                   <button
-                    onClick={() => onNavigateTab("pending_updates")}
+                    onClick={() => {
+                      selectProjectsTab("pending_updates");
+                      onNavigateTab?.("pending_updates");
+                    }}
                     className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 text-[11px] font-semibold flex items-center gap-1 transition-colors border border-emerald-500/30"
                   >
                     <span>View in Pending Updates</span>
@@ -1630,18 +1705,21 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigateTab }) => 
           )}
         </div>
       </div>
-
-      {/* OpenRouter 400+ Models Explorer Modal */}
-      <OpenRouterExplorerModal
-        isOpen={showOpenRouterExplorer}
-        onClose={() => setShowOpenRouterExplorer(false)}
-        selectedModelId={llmModel}
-        onSelectModel={(modelId) => {
-          setLlmModel(modelId);
-          setCustomModelSlug(modelId);
-          localStorage.setItem("llmModel", modelId);
-        }}
-      />
     </div>
-  );
+    )}
+  </div>
+
+    {/* OpenRouter 400+ Models Explorer Modal */}
+    <OpenRouterExplorerModal
+      isOpen={showOpenRouterExplorer}
+      onClose={() => setShowOpenRouterExplorer(false)}
+      selectedModelId={llmModel}
+      onSelectModel={(modelId) => {
+        setLlmModel(modelId);
+        setCustomModelSlug(modelId);
+        localStorage.setItem("llmModel", modelId);
+      }}
+    />
+  </div>
+);
 };
