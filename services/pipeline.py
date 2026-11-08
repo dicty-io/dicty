@@ -559,12 +559,18 @@ async def process_transcription(
     # If the text matches a known Whisper hallucination, or is extremely short (under 4 chars)
     if not snippet_only and (clean_text in hallucinations or len(clean_text) < 4):
         audio_dur = 0.0
-        for p in [mixed_audio_path, target_audio, audio_path]:
-            if p and os.path.exists(p):
-                try:
-                    audio_dur = max(audio_dur, os.path.getsize(p) / 32000.0)
-                except Exception:
-                    pass
+        allowed_dirs = [os.path.realpath(HISTORY_DIR), os.path.realpath(INPUT_DIR), os.path.realpath(tempfile.gettempdir())]
+        for p in [mixed_audio_path, mic_audio_path, audio_path]:
+            if p and isinstance(p, str):
+                p_name = os.path.basename(p)
+                for ad in allowed_dirs:
+                    cand = os.path.join(ad, p_name)
+                    if os.path.exists(cand):
+                        try:
+                            audio_dur = max(audio_dur, os.path.getsize(cand) / 32000.0)
+                        except Exception:
+                            pass
+                        break
         if audio_dur >= 0.8:
             print(f"[*] Audio duration is {audio_dur:.1f}s but STT yielded '{raw_text}'. Preserving recording in History for reprocessing.")
             raw_text = "[No speech recognized]"

@@ -616,6 +616,57 @@ class TestUpdateAndApiSuite(unittest.TestCase):
         mm = ModelManager()
         self.assertFalse(mm.delete_model("../../etc/passwd"))
 
+    def test_set_active_model_cloud_and_local(self):
+        """Ensure /models/active/{model_id} accepts cloud and catalog models."""
+        # 1. Cloud model
+        res = self.client.post("/models/active/deepgram/nova-3")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json().get("active_model"), "deepgram/nova-3")
+
+        # 2. Local model from catalog
+        res = self.client.post("/models/active/base.en")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json().get("active_model"), "base.en")
+
+        # 3. Unknown model -> 404
+        res = self.client.post("/models/active/non_existent_model_xyz")
+        self.assertEqual(res.status_code, 404)
+
+    def test_pipeline_hallucination_with_audio_preservation(self):
+        """Ensure audio duration >= 0.8s is preserved even when transcript is empty/hallucinated."""
+        import asyncio
+        import tempfile
+        import wave
+        from services import pipeline
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            temp_wav = f.name
+            # Create a 1.0 second silent wav file at 16000Hz mono (32000 bytes PCM)
+            with wave.open(temp_wav, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(16000)
+                wf.writeframes(b"\x00" * 32000)
+
+        try:
+            from unittest.mock import AsyncMock
+            with patch("services.pipeline.TranscribeService") as mock_ts:
+                mock_instance = mock_ts.return_value
+                mock_instance.transcribe = AsyncMock(return_value="you")
+                
+                res = asyncio.run(pipeline.process_transcription(
+                    audio_path=temp_wav,
+                    language="en",
+                    mode="dictation",
+                    is_incognito=True
+                ))
+                self.assertIsNotNone(res)
+                self.assertNotEqual(res.get("status"), "ignored")
+                self.assertEqual(res.get("text"), "[No speech recognized]")
+        finally:
+            if os.path.exists(temp_wav):
+                os.remove(temp_wav)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

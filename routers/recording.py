@@ -13,7 +13,9 @@ import time
 import transcribe_service
 import uuid
 import wave
-from services.paths import AUDIO_PATH, DATA_DIR, INPUT_DIR, SYSTEM_AUDIO_PATH
+from datetime import datetime
+import shutil
+from services.paths import AUDIO_PATH, DATA_DIR, HISTORY_DIR, INPUT_DIR, SYSTEM_AUDIO_PATH
 from pydantic import BaseModel
 from fastapi import File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from transcribe_service import TranscribeService
@@ -464,10 +466,22 @@ async def stop_recording(
             try:
                 timestamp = datetime.now().astimezone().isoformat(timespec='seconds')
                 history_root = os.path.realpath(HISTORY_DIR)
-                dest_audio = os.path.join(history_root, f"{record_id}.wav")
+                dest_audio = os.path.realpath(os.path.join(history_root, f"{record_id}.wav"))
+                if os.path.commonpath([history_root, dest_audio]) != history_root:
+                    dest_audio = ""
+
                 playback_src = temp_mixed or target_audio
-                if playback_src and os.path.exists(playback_src):
-                    shutil.copy2(playback_src, dest_audio)
+                if playback_src and dest_audio:
+                    src_name = os.path.basename(playback_src)
+                    allowed_dirs = [os.path.realpath(HISTORY_DIR), os.path.realpath(INPUT_DIR), os.path.realpath(DATA_DIR), os.path.realpath(tempfile.gettempdir())]
+                    valid_src = None
+                    for ad in allowed_dirs:
+                        cand = os.path.join(ad, src_name)
+                        if os.path.exists(cand):
+                            valid_src = cand
+                            break
+                    if valid_src and os.path.abspath(valid_src) != os.path.abspath(dest_audio):
+                        shutil.copy2(valid_src, dest_audio)
 
                 error_msg = str(exc)
                 record_payload = {
