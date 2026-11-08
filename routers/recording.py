@@ -13,7 +13,9 @@ import time
 import transcribe_service
 import uuid
 import wave
-from services.paths import AUDIO_PATH, DATA_DIR, INPUT_DIR, SYSTEM_AUDIO_PATH
+from datetime import datetime
+import shutil
+from services.paths import AUDIO_PATH, DATA_DIR, HISTORY_DIR, INPUT_DIR, SYSTEM_AUDIO_PATH
 from pydantic import BaseModel
 from fastapi import File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from transcribe_service import TranscribeService
@@ -230,6 +232,10 @@ async def stop_recording(
     author_name: str = Form(""),
     speech_route: str = Form("")
 ):
+    """
+    Stop active audio recording, package microphone and system loopback tracks,
+    and process speech-to-text transcription through local or cloud pipelines.
+    """
     translate_bool = translate_to_english.lower() == "true"
     auto_complete_bool = enable_auto_completion.lower() == "true"
     diarize_bool = enable_diarization.lower() == "true"
@@ -452,6 +458,14 @@ async def stop_recording(
             skip_cloud=skip_cloud_fallback,
             speech_route=snapshot_speech_route
         )
+    except Exception as exc:
+        print(f"[!] Critical error in process_transcription: {exc}")
+        res = {
+            "status": "error",
+            "error": "Transcription processing error",
+            "text": "",
+            "message": "Transcription failed."
+        }
     finally:
         if temp_mixed and os.path.exists(temp_mixed):
             try: os.remove(temp_mixed)

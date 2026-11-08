@@ -473,10 +473,10 @@ async def process_transcription(
                 model_name=active_model_id
             )
             if not raw_text or raw_text.strip() == "":
-                return {"status": "error", "message": "Transcription failed or empty"}
+                raw_text = "[No speech recognized]"
         except Exception as e:
             print(f"[-] Transcription aborted: {e}")
-            return {"status": "error", "message": str(e)}
+            raw_text = "[Transcription error]"
             
     t_post_0 = time.perf_counter()
     # If not diarization mode with timestamps, normalize single-line flow without
@@ -556,20 +556,15 @@ async def process_transcription(
         "if you enjoyed this video", "see you next time", "see you next time.",
         "on it.", "on it", "working on it.", "working on it"
     ]
-    # If the text matches a known Whisper hallucination, or is extremely short (under 4 chars)
-    if not snippet_only and (clean_text in hallucinations or len(clean_text) < 4):
-        print(f"[*] Ignored empty recording or background noise (Raw text: '{raw_text}')")
-        return {"status": "ignored", "message": "Audio was empty or contained only background noise."}
-        
     engine_time = time.time() - start_time
     # Avoid microsecond division spikes on pre-transcribed / VAD streaming text
     if engine_time < 0.2:
         engine_time = 0.5
     
-    # Get audio duration to calculate speaking WPM
+    # Get audio duration to calculate speaking WPM and prevent dropping long recordings
+    dur_max = 0.0
     try:
         dur_paths = [p for p in [mixed_audio_path, audio_path, mic_audio_path] if p and os.path.exists(p)]
-        dur_max = 0.0
         for p in dur_paths:
             try:
                 with wave.open(p, 'rb') as wf:
@@ -586,6 +581,16 @@ async def process_transcription(
     except Exception as dur_err:
         print(f"[!] Could not read audio duration for WPM stats ({dur_err}); using 5.0s fallback")
         duration_seconds = 5.0
+
+    # If the text matches a known Whisper hallucination, or is extremely short (under 4 chars)
+    if not snippet_only and (clean_text in hallucinations or len(clean_text) < 4):
+        if dur_max >= 0.8:
+            print(f"[*] Audio duration is {dur_max:.1f}s but STT yielded '{raw_text}'. Preserving recording in History for reprocessing.")
+            raw_text = "[No speech recognized]"
+            spoken_text = raw_text
+        else:
+            print(f"[*] Ignored empty recording or background noise (Raw text: '{raw_text}', duration: {dur_max:.2f}s)")
+            return {"status": "ignored", "message": "Audio was empty or contained only background noise."}
         
     word_count = len((spoken_text if snippet_expansions else raw_text).split())
     speaking_wpm = int((word_count / duration_seconds) * 60) if duration_seconds > 0 else 0

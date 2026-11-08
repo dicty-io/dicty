@@ -6,7 +6,7 @@ setlocal enabledelayedexpansion
 echo ===================================================
 echo            Starting Dicty in Dev Mode
 echo ===================================================
-echo [*] Repository root: %REPO_ROOT%
+echo [*] Repository root: "%REPO_ROOT%"
 
 :: Ensure user tools are in PATH
 if exist "%USERPROFILE%\.cargo\bin" set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"

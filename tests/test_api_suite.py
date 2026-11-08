@@ -244,11 +244,24 @@ class TestUpdateAndApiSuite(unittest.TestCase):
         self.assertIn("is_downloaded", first_model)
 
     def test_models_active_endpoint(self):
-        """Test GET /models/active returns currently selected model."""
+        """Test GET and POST /models/active."""
         response = self.client.get("/models/active")
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertIn("active_model", data)
+
+        # Setting recognized model should succeed without mutating environment or restarting background server
+        with patch("model_manager.ModelManager.set_active_model"), \
+             patch("routers.models.stop_whisper_server"), \
+             patch("routers.models.start_whisper_server"), \
+             patch("dotenv.load_dotenv"):
+            post_resp = self.client.post("/models/active/tiny.en")
+            self.assertEqual(post_resp.status_code, 200)
+            self.assertEqual(post_resp.json()["active_model"], "tiny.en")
+
+        # Setting unrecognized model should return 404
+        bad_resp = self.client.post("/models/active/nonexistent_model_12345")
+        self.assertEqual(bad_resp.status_code, 404)
 
     def test_devices_endpoint(self):
         """Test GET /devices returns available audio input devices."""
@@ -606,6 +619,61 @@ class TestUpdateAndApiSuite(unittest.TestCase):
         from model_manager import ModelManager
         mm = ModelManager()
         self.assertFalse(mm.delete_model("../../etc/passwd"))
+
+    def test_set_active_model_cloud_and_local(self):
+        """Ensure /models/active/{model_id} accepts cloud and catalog models."""
+        with patch("model_manager.ModelManager.set_active_model"), \
+             patch("routers.models.stop_whisper_server"), \
+             patch("routers.models.start_whisper_server"), \
+             patch("dotenv.load_dotenv"):
+            # 1. Cloud model
+            res = self.client.post("/models/active/deepgram/nova-3")
+            self.assertEqual(res.status_code, 200)
+            self.assertEqual(res.json().get("active_model"), "deepgram/nova-3")
+
+            # 2. Local model from catalog
+            res = self.client.post("/models/active/base.en")
+            self.assertEqual(res.status_code, 200)
+            self.assertEqual(res.json().get("active_model"), "base.en")
+
+            # 3. Unknown model -> 404
+            res = self.client.post("/models/active/non_existent_model_xyz")
+            self.assertEqual(res.status_code, 404)
+
+    def test_pipeline_hallucination_with_audio_preservation(self):
+        """Ensure audio duration >= 0.8s is preserved even when transcript is empty/hallucinated."""
+        import asyncio
+        import tempfile
+        import wave
+        from services import pipeline
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            temp_wav = f.name
+            # Create a 1.0 second silent wav file at 16000Hz mono (32000 bytes PCM)
+            with wave.open(temp_wav, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(16000)
+                wf.writeframes(b"\x00" * 32000)
+
+        try:
+            from unittest.mock import AsyncMock
+            with patch("services.pipeline.TranscribeService") as mock_ts:
+                mock_instance = mock_ts.return_value
+                mock_instance.transcribe = AsyncMock(return_value="you")
+                
+                res = asyncio.run(pipeline.process_transcription(
+                    audio_path=temp_wav,
+                    language="en",
+                    mode="dictation",
+                    is_incognito=True
+                ))
+                self.assertIsNotNone(res)
+                self.assertNotEqual(res.get("status"), "ignored")
+                self.assertEqual(res.get("text"), "[No speech recognized]")
+        finally:
+            if os.path.exists(temp_wav):
+                os.remove(temp_wav)
 
 
 if __name__ == "__main__":

@@ -156,11 +156,10 @@ export const TextToVoiceView: React.FC = () => {
         <div className="grid grid-cols-2 gap-3">
           <button
             onClick={() => setActiveEngine("kokoro")}
-            className={`p-3.5 rounded-xl border text-left transition-all ${
-              activeEngine === "kokoro"
+            className={`p-3.5 rounded-xl border text-left transition-all ${activeEngine === "kokoro"
                 ? "bg-[#5D6658]/30 border-[#87B996]/50 shadow-sm"
                 : "bg-white/[0.02] border-white/10 hover:border-white/20"
-            }`}
+              }`}
           >
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-white">Kokoro Neural</span>
@@ -175,11 +174,10 @@ export const TextToVoiceView: React.FC = () => {
 
           <button
             onClick={() => setActiveEngine("system")}
-            className={`p-3.5 rounded-xl border text-left transition-all ${
-              activeEngine === "system"
+            className={`p-3.5 rounded-xl border text-left transition-all ${activeEngine === "system"
                 ? "bg-[#5D6658]/30 border-[#87B996]/50 shadow-sm"
                 : "bg-white/[0.02] border-white/10 hover:border-white/20"
-            }`}
+              }`}
           >
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-white">Windows SAPI / System</span>
@@ -208,11 +206,10 @@ export const TextToVoiceView: React.FC = () => {
               <button
                 key={v.id}
                 onClick={() => setSelectedVoice(v.id)}
-                className={`p-3 rounded-xl border text-left flex items-center justify-between transition-all ${
-                  isSelected
+                className={`p-3 rounded-xl border text-left flex items-center justify-between transition-all ${isSelected
                     ? "bg-[#5D6658]/30 border-[#87B996]/50 shadow-sm text-white"
                     : "bg-white/[0.02] border-white/10 text-white/70 hover:bg-white/[0.04]"
-                }`}
+                  }`}
               >
                 <div className="flex items-center gap-2.5">
                   <span className="text-base">{v.flag}</span>
@@ -242,6 +239,7 @@ export const TextToVoiceView: React.FC = () => {
           onChange={(e) => setSampleText(e.target.value)}
           rows={3}
           placeholder="Enter text to synthesize into speech..."
+          aria-label="Text to synthesize into speech"
           className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-xs text-white placeholder-white/30 focus:outline-none focus:border-[#5D6658] resize-none leading-relaxed"
         />
 
@@ -257,6 +255,7 @@ export const TextToVoiceView: React.FC = () => {
                 step="0.05"
                 value={playbackSpeed}
                 onChange={(e) => setPlaybackSpeed(parseFloat(e.target.value))}
+                aria-label="Playback speed"
                 className="w-28 accent-[#87B996] cursor-pointer"
               />
               <span className="text-xs font-mono font-bold text-white w-10">

@@ -19,6 +19,9 @@ router = APIRouter()
 
 @router.get("/models")
 async def get_models():
+    """
+    List all available speech and text models, their installation status, and disk sizes.
+    """
     try:
         models = model_manager.get_available_models()
         for m in models:
@@ -39,6 +42,9 @@ async def get_models():
 
 @router.get("/models/active")
 async def get_active_model():
+    """
+    Return the currently active speech-to-text and text models.
+    """
     return {
         "active_model": model_manager.get_active_model(),
         "active_text_model": model_manager.get_active_text_model(),
@@ -46,6 +52,9 @@ async def get_active_model():
 
 @router.get("/models/active_text")
 async def get_active_text_model():
+    """
+    Return the currently active text model for post-processing and summarization.
+    """
     return {"active_text_model": model_manager.get_active_text_model()}
 
 _active_text_model_lock = asyncio.Lock()
@@ -53,26 +62,23 @@ _active_text_model_lock = asyncio.Lock()
 
 @router.post("/models/active_text/{model_id:path}")
 async def set_active_text_model(model_id: str):
+    """
+    Activate the specified local or cloud text model for post-processing,
+    summarization, and self-corrections.
+    """
     manager = ModelManager()
-    import local_llm
-    # If model is a remote/cloud identifier containing '/', check if cloud provider or reject
-    if "/" in model_id:
-        models = manager.get_available_models()
-        target = next((m for m in models if m["id"] == model_id), None)
-        if not target or not target.get("is_cloud", False):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Model '{model_id}' is not supported by the local text runner."
-            )
-    elif not manager.is_model_downloaded(model_id):
+    models = manager.get_available_models()
+    target = next((m for m in models if m["id"] == model_id), None)
+    if not target:
         raise HTTPException(
-            status_code=400,
-            detail=f"Model '{model_id}' is not installed. Please download it before setting as active."
+            status_code=404,
+            detail=f"Model '{model_id}' is not recognized."
         )
 
+    import local_llm
     async with _active_text_model_lock:
         manager.set_active_text_model(model_id)
-        if local_llm.is_server_running():
+        if manager.is_model_downloaded(model_id) and local_llm.is_server_running():
             try:
                 switch_ok = await asyncio.to_thread(local_llm.switch_model, model_id)
                 if not switch_ok:
@@ -92,38 +98,54 @@ async def set_active_text_model(model_id: str):
 
 @router.post("/models/active/{model_id:path}")
 async def set_active_model(model_id: str):
+    """
+    Activate the specified speech-to-text model for local or cloud audio transcription.
+    
+    Validates model availability, manages whisper-server lifecycle for local models,
+    and dispatches background prewarming.
+    """
     manager = ModelManager()
-    if not manager.is_model_downloaded(model_id):
+    models = manager.get_available_models()
+    target = next((m for m in models if m["id"] == model_id), None)
+    if not target:
         raise HTTPException(
-            status_code=400,
-            detail=f"Model '{model_id}' is not installed. Please download it before setting as active."
+            status_code=404,
+            detail=f"Model '{model_id}' is not recognized."
         )
     manager.set_active_model(model_id)
     load_dotenv(override=True)
-    models = manager.get_available_models()
-    active_model_dict = next((m for m in models if m["id"] == model_id), None)
-    is_cloud_model = bool((active_model_dict and active_model_dict.get("is_cloud", False)) or ("/" in model_id) or model_id in ["whisper-1", "deepgram/nova-3"])
+
+    is_cloud_model = bool((target and target.get("is_cloud", False)) or ("/" in model_id) or model_id in ["whisper-1", "deepgram/nova-3"])
     if is_cloud_model:
         stop_whisper_server()
-    elif whisper_server.keep_model_loaded:
-        stop_whisper_server()
-        import time
-        time.sleep(1)
-        start_whisper_server()
-    telemetry.track("model_switched", {"model_id": model_id})
+        telemetry.track("model_switched", {"model_id": model_id})
+    elif manager.is_model_downloaded(model_id):
+        if whisper_server.keep_model_loaded:
+            def _restart_whisper():
+                stop_whisper_server()
+                import time
+                time.sleep(1)
+                start_whisper_server()
+            await asyncio.to_thread(_restart_whisper)
+        telemetry.track("model_switched", {"model_id": model_id})
 
-    # Trigger async prewarm and CUDA warmup in background for instant first utterance
-    try:
-        from transcribe_service import prewarm_faster_whisper
-        import threading
-        threading.Thread(target=prewarm_faster_whisper, args=(model_id,), daemon=True).start()
-    except Exception as err:
-        print(f"[*] Prewarm dispatch note: {err}")
+        # Trigger async prewarm and CUDA warmup in background for instant first utterance
+        try:
+            from transcribe_service import prewarm_faster_whisper
+            import threading
+            threading.Thread(target=prewarm_faster_whisper, args=(model_id,), daemon=True).start()
+        except Exception as err:
+            print(f"[*] Prewarm dispatch note: {err}")
+    else:
+        telemetry.track("model_switched", {"model_id": model_id})
 
     return {"status": "success", "active_model": model_id}
 
 @router.post("/models/prewarm")
 async def api_prewarm_model(model_id: Optional[str] = None):
+    """
+    Trigger asynchronous Faster-Whisper background prewarming and CUDA/Metal warmup.
+    """
     try:
         from transcribe_service import prewarm_faster_whisper
         import threading
@@ -136,6 +158,9 @@ _openrouter_models_cache = {}  # key -> {"timestamp": float, "models": list}
 
 @router.get("/models/openrouter")
 async def get_openrouter_models(force: bool = False, sort: Optional[str] = None):
+    """
+    Fetch the catalog of supported models from OpenRouter, with 24-hour in-memory caching.
+    """
     global _openrouter_models_cache
     now = time.time()
     cache_key = sort or "most-popular"
@@ -205,6 +230,9 @@ async def get_openrouter_models(force: bool = False, sort: Optional[str] = None)
 
 @router.delete("/models/{model_id:path}")
 async def delete_model(model_id: str):
+    """
+    Delete a downloaded local model from disk and update server state if it was active.
+    """
     was_active = (model_id == model_manager.get_active_model())
     if was_active:
         stop_whisper_server()
@@ -226,11 +254,17 @@ async def delete_model(model_id: str):
 
 @router.post("/models/download/cancel")
 async def cancel_download_model(model_id: str):
+    """
+    Cancel an in-progress model download.
+    """
     model_manager.cancel_download(model_id)
     return {"status": "cancelled", "model_id": model_id}
 
 @router.post("/models/download/{model_id}")
 async def download_model(model_id: str, quality: str = "q5_0"):
+    """
+    Initiate downloading a model from HuggingFace to local storage.
+    """
     if model_manager.is_model_downloaded(model_id):
         # Don't overwrite the recorded quality: the file on disk didn't change
         model_manager.download_progress[model_id] = 100.0
@@ -240,23 +274,28 @@ async def download_model(model_id: str, quality: str = "q5_0"):
     telemetry.track("model_download_started", {"model_id": model_id, "quality": quality})
 
     def _on_progress(m_id, pct):
+        """Log model download progress percentage."""
         print(f"[{m_id}] Download ({quality}): {pct:.2f}%")
         
     def _on_complete(m_id, success):
+        """Handle model download completion, emit telemetry, and start server if loaded."""
         print(f"[{m_id}] Download Complete: {success}")
         telemetry.track("model_download_completed", {"model_id": m_id, "quality": quality, "success": success})
         if success and whisper_server.keep_model_loaded:
-            start_whisper_server()
+            if m_id == model_manager.get_active_model():
+                start_whisper_server()
         
     model_manager.start_download(model_id, quality, _on_progress, _on_complete)
     return {"status": "download_started", "model_id": model_id, "quality": quality}
 
 @router.get("/models/download/progress")
 async def get_download_progress():
+    """Retrieve current download progress percentage for all downloading models."""
     return {"progress": model_manager.download_progress}
 
 @router.post("/models/open")
 async def open_models_folder():
+    """Open the local models storage directory in the native file manager (Finder/Explorer)."""
     from model_manager import MODELS_DIR
     path = os.path.normpath(os.path.abspath(MODELS_DIR))
     os.makedirs(path, exist_ok=True)

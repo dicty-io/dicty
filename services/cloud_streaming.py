@@ -317,15 +317,16 @@ class SegmentedBatchSession(StreamSession):
 
 
 def dicty_cloud_url() -> str:
+    """Return the base URL for Dicty Cloud relay endpoints."""
     import os
     return os.getenv("DICTY_CLOUD_URL", "https://dicty-backend.dicty-backend.workers.dev")
 
 
 def dicty_cloud_token() -> Optional[str]:
+    """Retrieve the active Dicty Cloud authentication JWT token from session storage."""
     try:
         import auth
-        session = auth.SecureAuthManager.get_session()
-        return (session or {}).get("jwt_token") or None
+        return auth.SecureAuthManager.get_jwt_token() or None
     except Exception:
         return None
 
@@ -341,7 +342,7 @@ def create_session(loop: asyncio.AbstractEventLoop, model_id: str, sample_rate: 
         if ts.get_stt_key("deepgram"):
             # User's own key: straight to Deepgram (nearest region)
             return DeepgramLiveSession(loop, model, sample_rate, language=language, keyterms=vocab_words)
-        token = dicty_cloud_token() if route_provider == "dicty_cloud" else None
+        token = dicty_cloud_token()
         if token:
             # Dicty Cloud: live relay through the Dicty worker (server-side key, billed to the account)
             return DeepgramLiveSession(loop, model, sample_rate, language=language, keyterms=vocab_words,

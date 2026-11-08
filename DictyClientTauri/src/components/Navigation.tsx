@@ -172,11 +172,10 @@ export const Navigation: React.FC<NavigationProps> = ({
                     style={{
                       backgroundColor: active ? accentInfo.activeHex : undefined,
                     }}
-                    className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                      active
+                    className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${active
                         ? "text-white shadow-sm"
                         : "text-white/70 hover:text-white hover:bg-white/5"
-                    }`}
+                      }`}
                   >
                     <Icon
                       style={{
@@ -192,11 +191,10 @@ export const Navigation: React.FC<NavigationProps> = ({
 
                     {item.badge && !item.isLoading && (
                       <span
-                        className={`ml-auto px-1.5 py-0.2 rounded-full text-[10px] font-bold border ${
-                          item.badgeVariant === "emerald"
+                        className={`ml-auto px-1.5 py-0.2 rounded-full text-[10px] font-bold border ${item.badgeVariant === "emerald"
                             ? "bg-emerald-500/30 text-emerald-300 border-emerald-500/40"
                             : "bg-indigo-500/30 text-indigo-300 border-indigo-500/40"
-                        }`}
+                          }`}
                       >
                         {item.badge}
                       </span>
@@ -216,11 +214,10 @@ export const Navigation: React.FC<NavigationProps> = ({
           style={{
             backgroundColor: isSettingsActive ? accentInfo.activeHex : undefined,
           }}
-          className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all relative ${
-            isSettingsActive
+          className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all relative ${isSettingsActive
               ? "text-white shadow-sm"
               : "text-white/70 hover:text-white hover:bg-white/5"
-          }`}
+            }`}
         >
           <Settings
             style={{
@@ -245,11 +242,10 @@ export const Navigation: React.FC<NavigationProps> = ({
           style={{
             backgroundColor: isHelpActive ? accentInfo.activeHex : undefined,
           }}
-          className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
-            isHelpActive
+          className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${isHelpActive
               ? "text-white shadow-sm"
               : "text-white/70 hover:text-white hover:bg-white/5"
-          }`}
+            }`}
         >
           <CircleHelp
             style={{

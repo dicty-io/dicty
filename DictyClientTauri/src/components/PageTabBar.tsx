@@ -38,6 +38,7 @@ export function PageTabBar<T extends string = string>({
             type="button"
             role="tab"
             aria-selected={isSelected}
+            tabIndex={isSelected ? 0 : -1}
             onClick={() => onSelect(tab.id)}
             style={{
               backgroundColor: isSelected ? accentInfo.activeHex : undefined,

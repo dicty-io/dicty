@@ -105,7 +105,7 @@ export const SettingsHubView: React.FC<SettingsHubViewProps> = ({ initialSubTab 
     <div className="flex-1 flex flex-col min-h-0 min-w-0 select-none">
       {/* macOS toolbar-style segmented switcher */}
       <div className="px-8 pt-5 pb-3 border-b border-white/10 shrink-0 bg-black/20 backdrop-blur-md">
-        <div className="flex items-center gap-2 overflow-x-auto py-1">
+        <div role="tablist" aria-label="Settings categories" className="flex items-center gap-2 overflow-x-auto py-1">
           {SETTINGS_TABS.map((item) => {
             const isSelected = activeSubTab === item.id;
             const Icon = item.icon;
@@ -114,34 +114,34 @@ export const SettingsHubView: React.FC<SettingsHubViewProps> = ({ initialSubTab 
             return (
               <button
                 key={item.id}
+                type="button"
+                role="tab"
+                aria-selected={isSelected}
                 onClick={() => handleSelectTab(item.id)}
                 style={{
                   backgroundColor: isSelected ? `rgba(${accentInfo.glowRgb}, 0.25)` : undefined,
                   borderColor: isSelected ? `rgba(${accentInfo.glowRgb}, 0.45)` : "transparent",
                 }}
-                className={`relative flex flex-col items-center justify-center min-w-[70px] px-3.5 py-1.5 rounded-xl border transition-all ${
-                  isSelected
+                className={`relative flex flex-col items-center justify-center min-w-[70px] px-3.5 py-1.5 rounded-xl border transition-all ${isSelected
                     ? "text-white shadow-sm"
                     : "text-white/60 hover:text-white hover:bg-white/[0.04]"
-                }`}
+                  }`}
               >
                 <div className="relative">
                   <Icon
                     style={{
                       color: isSelected ? accentInfo.swatchDark : undefined,
                     }}
-                    className={`w-4 h-4 mb-1 transition-colors ${
-                      isSelected ? "" : "text-white/60"
-                    }`}
+                    className={`w-4 h-4 mb-1 transition-colors ${isSelected ? "" : "text-white/60"
+                      }`}
                   />
                   {showBadge && (
                     <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-black" />
                   )}
                 </div>
                 <span
-                  className={`text-[11px] font-medium tracking-tight whitespace-nowrap ${
-                    isSelected ? "text-white font-semibold" : "text-white/70"
-                  }`}
+                  className={`text-[11px] font-medium tracking-tight whitespace-nowrap ${isSelected ? "text-white font-semibold" : "text-white/70"
+                    }`}
                 >
                   {item.label}
                 </span>

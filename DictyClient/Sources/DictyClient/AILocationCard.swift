@@ -62,10 +62,17 @@ struct AILocationCard: View {
     }
 
     private var isSpeechCloud: Bool {
+        let active = engineClient.activeModel
+        if active.starts(with: "deepgram/") || active.starts(with: "openai/") || active.starts(with: "groq/") || active.starts(with: "elevenlabs/") {
+            return true
+        }
+        if let current = engineClient.models.first(where: { $0.id == active }) {
+            return current.is_cloud == true
+        }
         if let speech = speechModel {
             return speech.is_cloud == true || speech.id.starts(with: "deepgram/") || speech.id.starts(with: "openai/")
         }
-        return engineClient.activeModel.starts(with: "deepgram/") || engineClient.activeModel.starts(with: "openai/")
+        return false
     }
 
     private var isTextCloud: Bool {
@@ -111,6 +118,10 @@ struct AILocationCard: View {
 
     private var isTextModelDownloaded: Bool {
         textModel?.is_downloaded == true
+    }
+
+    private var canUseDictyCloud: Bool {
+        engineClient.isLoggedIn && (engineClient.isPro || engineClient.computeBalance > 0)
     }
 
     private var hasCloudKey: Bool {
@@ -419,17 +430,44 @@ struct AILocationCard: View {
         targetModeTag = tag
         if tag == "local" {
             customSelectedManually = false
-            let localSpeech = !lastLocalSpeechModel.isEmpty ? lastLocalSpeechModel : (engineClient.transcriptionLanguage == "en" ? "base.en" : "base")
-            let localText = !lastLocalTextModel.isEmpty ? lastLocalTextModel : "qwen3.5-0.8b"
-            llmProvider = "local"
-            llmModel = localText
-            if isSpeechCloud {
-                engineClient.setActiveModel(id: localSpeech)
+
+            // 1. Pick the best local speech model:
+            var chosenSpeech: String = ""
+            let isEng = engineClient.transcriptionLanguage == "en"
+            if !lastLocalSpeechModel.isEmpty, let m = engineClient.models.first(where: { $0.id == lastLocalSpeechModel && $0.is_downloaded == true && !$0.isTextModel && $0.is_cloud != true && (isEng || !$0.id.hasSuffix(".en")) }) {
+                chosenSpeech = m.id
+            } else {
+                let downloaded = engineClient.models.filter { $0.is_downloaded == true && !$0.isTextModel && $0.is_cloud != true }
+                if isEng, let engMatch = downloaded.first(where: { $0.id.hasSuffix(".en") || $0.id == "distil-large-v3" }) {
+                    chosenSpeech = engMatch.id
+                } else if let anyDownloaded = downloaded.first(where: { !isEng ? !$0.id.hasSuffix(".en") : true }) ?? downloaded.first {
+                    chosenSpeech = anyDownloaded.id
+                } else {
+                    chosenSpeech = isEng ? "base.en" : "base"
+                }
             }
+            lastLocalSpeechModel = chosenSpeech
+
+            // 2. Pick the best local text model:
+            var chosenText: String = ""
+            if !lastLocalTextModel.isEmpty, let m = engineClient.models.first(where: { $0.id == lastLocalTextModel && $0.is_downloaded == true && $0.isTextModel && $0.is_cloud != true }) {
+                chosenText = m.id
+            } else if let downloadedText = engineClient.models.first(where: { $0.is_downloaded == true && $0.isTextModel && $0.is_cloud != true }) {
+                chosenText = downloadedText.id
+            } else {
+                chosenText = !lastLocalTextModel.isEmpty ? lastLocalTextModel : "qwen3.5-0.8b"
+            }
+            lastLocalTextModel = chosenText
+
+            llmProvider = "local"
+            llmModel = chosenText
+            engineClient.setActiveTextModel(id: chosenText)
+            engineClient.setActiveModel(id: chosenSpeech)
+
             Task {
                 await store.setAILocation("local")
                 await MainActor.run {
-                    if targetModeTag == "local" && !isSpeechCloud && !isTextCloud {
+                    if targetModeTag == "local" {
                         targetModeTag = nil
                     }
                 }
@@ -438,16 +476,14 @@ struct AILocationCard: View {
             customSelectedManually = false
             let cloudSpeech = !lastCloudSpeechModel.isEmpty ? lastCloudSpeechModel : "deepgram/nova-3"
             let cloudText = !lastCloudTextModel.isEmpty && lastCloudTextModel.contains("/") ? lastCloudTextModel : "deepseek/deepseek-v4-flash"
-            llmProvider = "openrouter"
+            llmProvider = canUseDictyCloud ? "dicty_cloud" : "openrouter"
             llmModel = cloudText
             lastCloudTextModel = cloudText
-            if !isSpeechCloud {
-                engineClient.setActiveModel(id: cloudSpeech)
-            }
+            engineClient.setActiveModel(id: cloudSpeech)
             Task {
                 await store.setAILocation("cloud_when_better")
                 await MainActor.run {
-                    if targetModeTag == "cloud" && isSpeechCloud && isTextCloud {
+                    if targetModeTag == "cloud" {
                         targetModeTag = nil
                     }
                 }
