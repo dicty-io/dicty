@@ -51,7 +51,7 @@ export const InsightsView: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [period, setPeriod] = useState<"day" | "week" | "month" | "all">("week");
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (isMountedRef?: { current: boolean }) => {
     setIsLoading(true);
     try {
       const [metricsRes, statsRes] = await Promise.all([
@@ -59,27 +59,41 @@ export const InsightsView: React.FC = () => {
         engineFetch(`/stats?period=${period}`),
       ]);
 
+      if (isMountedRef && !isMountedRef.current) return;
+
       if (metricsRes.ok) {
         const data = await metricsRes.json();
         const list = Array.isArray(data) ? data : data?.items || data?.metrics || [];
-        setMetrics(list);
+        if (!isMountedRef || isMountedRef.current) {
+          setMetrics(list);
+        }
       }
 
       if (statsRes.ok) {
         const data = await statsRes.json();
-        setStats(data);
+        if (!isMountedRef || isMountedRef.current) {
+          setStats(data);
+        }
       }
     } catch (err) {
-      console.warn("Failed to fetch performance metrics:", err);
+      if (!isMountedRef || isMountedRef.current) {
+        console.warn("Failed to fetch performance metrics:", err);
+      }
     } finally {
-      setIsLoading(false);
+      if (!isMountedRef || isMountedRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [period]);
 
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 8000);
-    return () => clearInterval(interval);
+    const isMountedRef = { current: true };
+    fetchData(isMountedRef);
+    const interval = setInterval(() => fetchData(isMountedRef), 8000);
+    return () => {
+      isMountedRef.current = false;
+      clearInterval(interval);
+    };
   }, [fetchData]);
 
   // Derived calculations from recent metrics
@@ -162,7 +176,7 @@ export const InsightsView: React.FC = () => {
             ))}
           </div>
           <button
-            onClick={fetchData}
+            onClick={() => fetchData()}
             disabled={isLoading}
             className="p-2 rounded-xl bg-white/[0.04] hover:bg-white/10 text-white/70 hover:text-white border border-white/10 transition-all"
             title="Refresh metrics"

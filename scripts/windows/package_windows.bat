@@ -60,7 +60,7 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 
-:: 5. Build native desktop installer via Tauri
+:: 4. Build native desktop installer via Tauri
 echo [*] Step 3/3: Packaging Windows Native Installer (Tauri NSIS)...
 call npm run tauri build
 if %ERRORLEVEL% NEQ 0 (

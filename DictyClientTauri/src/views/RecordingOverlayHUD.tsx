@@ -119,7 +119,7 @@ export const RecordingOverlayHUD: React.FC = () => {
         if (t) setToggleKey(t);
         if (p) setPauseKey(p);
         if (m) setModeKey(m);
-      } catch {}
+      } catch { }
     };
     updateKeys();
 
@@ -144,7 +144,7 @@ export const RecordingOverlayHUD: React.FC = () => {
       }
     ).then((unsub) => {
       unlisten = unsub;
-    }).catch(() => {});
+    }).catch(() => { });
 
     return () => {
       window.removeEventListener("storage", handleStorage);
@@ -169,7 +169,7 @@ export const RecordingOverlayHUD: React.FC = () => {
       const appWindow = getCurrentWebviewWindow();
       await appWindow.startDragging();
     } catch {
-      invoke("start_drag_overlay").catch(() => {});
+      invoke("start_drag_overlay").catch(() => { });
     }
   };
 
@@ -234,7 +234,7 @@ export const RecordingOverlayHUD: React.FC = () => {
         if (info?.profile_name) setActiveProfileName(info.profile_name);
         if (info?.mode) setActiveMode(info.mode);
       })
-      .catch(() => {});
+      .catch(() => { });
 
     listen<any>("dicty:recording-state-changed", (event) => {
       const payload = event.payload || {};
@@ -642,11 +642,10 @@ export const RecordingOverlayHUD: React.FC = () => {
                 type="button"
                 onClick={handleTogglePause}
                 title={isPaused ? `Resume Recording (${pauseKey})` : `Pause Recording (${pauseKey})`}
-                className={`w-6 h-6 rounded-full flex items-center justify-center transition-all ${
-                  isPaused
+                className={`w-6 h-6 rounded-full flex items-center justify-center transition-all ${isPaused
                     ? "bg-amber-500/35 text-amber-300 hover:bg-amber-500/50 border border-amber-500/50 shadow-[0_0_8px_rgba(245,158,11,0.3)]"
                     : "bg-white/10 hover:bg-white/20 text-white"
-                }`}
+                  }`}
               >
                 {isPaused ? (
                   <Play className="w-3 h-3 fill-amber-300 text-amber-300 ml-0.5" />
@@ -670,11 +669,11 @@ export const RecordingOverlayHUD: React.FC = () => {
                   onClick={handleToggleMicMute}
                   disabled={isTogglingMute || isProcessing}
                   title={isMicMuted ? "Unmute Microphone" : "Mute Microphone (Record system audio only)"}
-                  className={`w-6 h-6 rounded-full flex items-center justify-center transition-all ${
-                    isMicMuted
+                  aria-label={isMicMuted ? "Unmute Microphone" : "Mute Microphone"}
+                  className={`w-6 h-6 rounded-full flex items-center justify-center transition-all ${isMicMuted
                       ? "bg-amber-500/35 text-amber-300 border border-amber-500/50"
                       : "bg-white/10 hover:bg-white/20 text-white"
-                  }`}
+                    }`}
                 >
                   {isMicMuted ? <MicOff className="w-3 h-3 text-amber-300" /> : <Mic className="w-3 h-3" />}
                 </button>
@@ -874,10 +873,10 @@ export const RecordingOverlayHUD: React.FC = () => {
                   const barColor = isPaused
                     ? "#F59E0B"
                     : i % 4 === 0
-                    ? "#34D399"
-                    : i % 2 === 0
-                    ? "#6EE7B7"
-                    : "#FFFFFF";
+                      ? "#34D399"
+                      : i % 2 === 0
+                        ? "#6EE7B7"
+                        : "#FFFFFF";
 
                   return (
                     <div
@@ -920,11 +919,10 @@ export const RecordingOverlayHUD: React.FC = () => {
               onClick={handleTogglePause}
               disabled={isProcessing}
               title={isPaused ? `Resume Recording (${pauseKey})` : `Pause Recording (${pauseKey})`}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all whitespace-nowrap ${
-                isPaused
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all whitespace-nowrap ${isPaused
                   ? "bg-amber-500/35 text-amber-300 border border-amber-500/60 hover:bg-amber-500/50 shadow-[0_0_12px_rgba(245,158,11,0.3)]"
                   : "bg-white/10 text-white/90 hover:bg-white/15"
-              }`}
+                }`}
             >
               {isPaused ? (
                 <>
@@ -948,11 +946,11 @@ export const RecordingOverlayHUD: React.FC = () => {
                 onClick={handleToggleMicMute}
                 disabled={isProcessing || isTogglingMute}
                 title={isMicMuted ? "Unmute Microphone" : "Mute Microphone (Record system audio only)"}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all whitespace-nowrap ${
-                  isMicMuted
+                aria-label={isMicMuted ? "Unmute Microphone" : "Mute Microphone"}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all whitespace-nowrap ${isMicMuted
                     ? "bg-amber-500/35 text-amber-300 border border-amber-500/60 hover:bg-amber-500/50 shadow-[0_0_10px_rgba(245,158,11,0.25)]"
                     : "bg-white/10 text-white/90 hover:bg-white/15"
-                }`}
+                  }`}
               >
                 {isMicMuted ? (
                   <MicOff className="w-3 h-3 text-amber-300 flex-shrink-0" />
@@ -1025,11 +1023,10 @@ export const RecordingOverlayHUD: React.FC = () => {
                       key={p.id}
                       type="button"
                       onClick={() => handlePickModeOverride(p.id, p.name)}
-                      className={`px-2 py-0.5 rounded-lg text-[10px] font-medium transition-all ${
-                        isCurrent
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-medium transition-all ${isCurrent
                           ? "bg-emerald-500/25 text-emerald-200 border border-emerald-500/50 shadow-sm"
                           : "bg-white/5 hover:bg-white/15 text-white/70 border border-white/10"
-                      }`}
+                        }`}
                     >
                       {p.name}
                     </button>
