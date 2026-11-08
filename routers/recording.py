@@ -460,62 +460,11 @@ async def stop_recording(
         )
     except Exception as exc:
         print(f"[!] Critical error in process_transcription: {exc}")
-        import traceback
-        traceback.print_exc()
-
-        # Preserve the recorded audio and create a history record even on failure
-        record_id = str(uuid.uuid4())
-        dest_audio = ""
-        if not incognito_bool:
-            try:
-                timestamp = datetime.now().astimezone().isoformat(timespec='seconds')
-                history_root = os.path.realpath(HISTORY_DIR)
-                dest_audio = os.path.realpath(os.path.join(history_root, f"{record_id}.wav"))
-                if os.path.commonpath([history_root, dest_audio]) != history_root:
-                    dest_audio = ""
-
-                playback_src = temp_mixed or target_audio
-                if playback_src and dest_audio:
-                    src_name = os.path.basename(playback_src)
-                    if re.fullmatch(r"[A-Za-z0-9._-]+\.wav", src_name):
-                        allowed_dirs = [os.path.realpath(HISTORY_DIR), os.path.realpath(INPUT_DIR), os.path.realpath(DATA_DIR), os.path.realpath(tempfile.gettempdir())]
-                        for ad in allowed_dirs:
-                            cand = os.path.realpath(os.path.join(ad, src_name))
-                            try:
-                                if os.path.commonpath([ad, cand]) == ad and os.path.exists(cand):
-                                    if cand != dest_audio:
-                                        shutil.copy2(cand, dest_audio)
-                                    break
-                            except Exception:
-                                pass
-
-                err_type = type(exc).__name__
-                record_payload = {
-                    "id": record_id,
-                    "timestamp": timestamp,
-                    "title": "Recording (Failed)",
-                    "tags": ["failed"],
-                    "text": f"[Transcription Error: {err_type}]",
-                    "raw_text": "",
-                    "mode": effective_mode,
-                    "audio_file": dest_audio,
-                    "speaking_wpm": 0,
-                    "engine_wpm": 0,
-                    "app_id": effective_app_id,
-                    "app_name": target_app_name or "",
-                    "mode_id": resolved_mode_id or effective_mode,
-                    "mode_reason": resolved_mode_reason or "default",
-                }
-                history_manager.add_record(record_payload)
-            except Exception as hist_err:
-                print(f"[!] Failed to save error history record: {hist_err}")
-
         res = {
             "status": "error",
-            "error": f"Transcription error ({type(exc).__name__})",
+            "error": "Transcription processing error",
             "text": "",
-            "record_id": record_id,
-            "message": "Transcription failed. Audio preserved in History for reprocessing."
+            "message": "Transcription failed."
         }
     finally:
         if temp_mixed and os.path.exists(temp_mixed):
