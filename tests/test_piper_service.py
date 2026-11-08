@@ -9,7 +9,9 @@ from tts_service import TTSService
 try:
     from piper import PiperVoice  # noqa: F401
     HAS_PIPER = True
-except ImportError:
+except ModuleNotFoundError as exc:
+    if exc.name != "piper":
+        raise
     HAS_PIPER = False
 
 class TestPiperService(unittest.TestCase):

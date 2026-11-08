@@ -250,6 +250,7 @@ _STT_ENV_NAMES = {
 
 
 def set_user_stt_keys(keys: dict) -> None:
+    """Store user-provided speech-to-text API keys in memory."""
     for provider in _STT_ENV_NAMES:
         if provider in keys:
             v = (keys.get(provider) or "").strip()

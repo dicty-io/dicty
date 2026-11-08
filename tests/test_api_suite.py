@@ -250,10 +250,14 @@ class TestUpdateAndApiSuite(unittest.TestCase):
         data = response.json()
         self.assertIn("active_model", data)
 
-        # Setting recognized model should succeed
-        post_resp = self.client.post("/models/active/tiny.en")
-        self.assertEqual(post_resp.status_code, 200)
-        self.assertEqual(post_resp.json()["active_model"], "tiny.en")
+        # Setting recognized model should succeed without mutating environment or restarting background server
+        with patch("model_manager.ModelManager.set_active_model"), \
+             patch("routers.models.stop_whisper_server"), \
+             patch("routers.models.start_whisper_server"), \
+             patch("dotenv.load_dotenv"):
+            post_resp = self.client.post("/models/active/tiny.en")
+            self.assertEqual(post_resp.status_code, 200)
+            self.assertEqual(post_resp.json()["active_model"], "tiny.en")
 
         # Setting unrecognized model should return 404
         bad_resp = self.client.post("/models/active/nonexistent_model_12345")
@@ -618,19 +622,23 @@ class TestUpdateAndApiSuite(unittest.TestCase):
 
     def test_set_active_model_cloud_and_local(self):
         """Ensure /models/active/{model_id} accepts cloud and catalog models."""
-        # 1. Cloud model
-        res = self.client.post("/models/active/deepgram/nova-3")
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.json().get("active_model"), "deepgram/nova-3")
+        with patch("model_manager.ModelManager.set_active_model"), \
+             patch("routers.models.stop_whisper_server"), \
+             patch("routers.models.start_whisper_server"), \
+             patch("dotenv.load_dotenv"):
+            # 1. Cloud model
+            res = self.client.post("/models/active/deepgram/nova-3")
+            self.assertEqual(res.status_code, 200)
+            self.assertEqual(res.json().get("active_model"), "deepgram/nova-3")
 
-        # 2. Local model from catalog
-        res = self.client.post("/models/active/base.en")
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.json().get("active_model"), "base.en")
+            # 2. Local model from catalog
+            res = self.client.post("/models/active/base.en")
+            self.assertEqual(res.status_code, 200)
+            self.assertEqual(res.json().get("active_model"), "base.en")
 
-        # 3. Unknown model -> 404
-        res = self.client.post("/models/active/non_existent_model_xyz")
-        self.assertEqual(res.status_code, 404)
+            # 3. Unknown model -> 404
+            res = self.client.post("/models/active/non_existent_model_xyz")
+            self.assertEqual(res.status_code, 404)
 
     def test_pipeline_hallucination_with_audio_preservation(self):
         """Ensure audio duration >= 0.8s is preserved even when transcript is empty/hallucinated."""

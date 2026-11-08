@@ -53,6 +53,10 @@ _active_text_model_lock = asyncio.Lock()
 
 @router.post("/models/active_text/{model_id:path}")
 async def set_active_text_model(model_id: str):
+    """
+    Activate the specified local or cloud text model for post-processing,
+    summarization, and self-corrections.
+    """
     manager = ModelManager()
     models = manager.get_available_models()
     target = next((m for m in models if m["id"] == model_id), None)
@@ -85,6 +89,12 @@ async def set_active_text_model(model_id: str):
 
 @router.post("/models/active/{model_id:path}")
 async def set_active_model(model_id: str):
+    """
+    Activate the specified speech-to-text model for local or cloud audio transcription.
+    
+    Validates model availability, manages whisper-server lifecycle for local models,
+    and dispatches background prewarming.
+    """
     manager = ModelManager()
     models = manager.get_available_models()
     target = next((m for m in models if m["id"] == model_id), None)
@@ -122,6 +132,9 @@ async def set_active_model(model_id: str):
 
 @router.post("/models/prewarm")
 async def api_prewarm_model(model_id: Optional[str] = None):
+    """
+    Trigger asynchronous Faster-Whisper background prewarming and CUDA/Metal warmup.
+    """
     try:
         from transcribe_service import prewarm_faster_whisper
         import threading
@@ -134,6 +147,9 @@ _openrouter_models_cache = {}  # key -> {"timestamp": float, "models": list}
 
 @router.get("/models/openrouter")
 async def get_openrouter_models(force: bool = False, sort: Optional[str] = None):
+    """
+    Fetch the catalog of supported models from OpenRouter, with 24-hour in-memory caching.
+    """
     global _openrouter_models_cache
     now = time.time()
     cache_key = sort or "most-popular"

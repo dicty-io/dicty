@@ -232,6 +232,10 @@ async def stop_recording(
     author_name: str = Form(""),
     speech_route: str = Form("")
 ):
+    """
+    Stop active audio recording, package microphone and system loopback tracks,
+    and process speech-to-text transcription through local or cloud pipelines.
+    """
     translate_bool = translate_to_english.lower() == "true"
     auto_complete_bool = enable_auto_completion.lower() == "true"
     diarize_bool = enable_diarization.lower() == "true"

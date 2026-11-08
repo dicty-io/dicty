@@ -433,11 +433,11 @@ struct AILocationCard: View {
 
             // 1. Pick the best local speech model:
             var chosenSpeech: String = ""
-            if !lastLocalSpeechModel.isEmpty, let m = engineClient.models.first(where: { $0.id == lastLocalSpeechModel && $0.is_downloaded == true && !$0.isTextModel && $0.is_cloud != true }) {
+            let isEng = engineClient.transcriptionLanguage == "en"
+            if !lastLocalSpeechModel.isEmpty, let m = engineClient.models.first(where: { $0.id == lastLocalSpeechModel && $0.is_downloaded == true && !$0.isTextModel && $0.is_cloud != true && (isEng || !$0.id.hasSuffix(".en")) }) {
                 chosenSpeech = m.id
             } else {
                 let downloaded = engineClient.models.filter { $0.is_downloaded == true && !$0.isTextModel && $0.is_cloud != true }
-                let isEng = engineClient.transcriptionLanguage == "en"
                 if isEng, let engMatch = downloaded.first(where: { $0.id.hasSuffix(".en") || $0.id == "distil-large-v3" }) {
                     chosenSpeech = engMatch.id
                 } else if let anyDownloaded = downloaded.first(where: { !isEng ? !$0.id.hasSuffix(".en") : true }) ?? downloaded.first {
