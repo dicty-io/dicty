@@ -452,6 +452,51 @@ async def stop_recording(
             skip_cloud=skip_cloud_fallback,
             speech_route=snapshot_speech_route
         )
+    except Exception as exc:
+        print(f"[!] Critical error in process_transcription: {exc}")
+        import traceback
+        traceback.print_exc()
+
+        # Preserve the recorded audio and create a history record even on failure
+        record_id = str(uuid.uuid4())
+        dest_audio = ""
+        if not incognito_bool:
+            try:
+                timestamp = datetime.now().astimezone().isoformat(timespec='seconds')
+                history_root = os.path.realpath(HISTORY_DIR)
+                dest_audio = os.path.join(history_root, f"{record_id}.wav")
+                playback_src = temp_mixed or target_audio
+                if playback_src and os.path.exists(playback_src):
+                    shutil.copy2(playback_src, dest_audio)
+
+                error_msg = str(exc)
+                record_payload = {
+                    "id": record_id,
+                    "timestamp": timestamp,
+                    "title": "Recording (Failed)",
+                    "tags": ["failed"],
+                    "text": f"[Transcription Error: {error_msg}]",
+                    "raw_text": "",
+                    "mode": effective_mode,
+                    "audio_file": dest_audio,
+                    "speaking_wpm": 0,
+                    "engine_wpm": 0,
+                    "app_id": effective_app_id,
+                    "app_name": target_app_name or "",
+                    "mode_id": resolved_mode_id or effective_mode,
+                    "mode_reason": resolved_mode_reason or "default",
+                }
+                history_manager.add_record(record_payload)
+            except Exception as hist_err:
+                print(f"[!] Failed to save error history record: {hist_err}")
+
+        res = {
+            "status": "error",
+            "error": str(exc),
+            "text": "",
+            "record_id": record_id,
+            "message": f"Transcription error: {str(exc)}. Audio preserved in History for reprocessing."
+        }
     finally:
         if temp_mixed and os.path.exists(temp_mixed):
             try: os.remove(temp_mixed)

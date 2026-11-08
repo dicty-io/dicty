@@ -3323,6 +3323,12 @@ class EngineClient: ObservableObject {
                 DispatchQueue.main.async { self.avgEngineWpm = e_wpm }
             }
             let metricsId = json["metrics_id"] as? String
+            if let status = json["status"] as? String, status == "error" {
+                let msg = json["message"] as? String ?? json["error"] as? String ?? "Transcription failed. Saved to History."
+                DispatchQueue.main.async {
+                    self.processingStatusMessage = msg
+                }
+            }
             if let text = json["text"] as? String, !text.isEmpty {
                 let responseMode = json["mode"] as? String ?? ""
                 if responseMode == "librarian" {

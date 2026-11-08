@@ -244,11 +244,20 @@ class TestUpdateAndApiSuite(unittest.TestCase):
         self.assertIn("is_downloaded", first_model)
 
     def test_models_active_endpoint(self):
-        """Test GET /models/active returns currently selected model."""
+        """Test GET and POST /models/active."""
         response = self.client.get("/models/active")
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertIn("active_model", data)
+
+        # Setting recognized model should succeed
+        post_resp = self.client.post("/models/active/tiny.en")
+        self.assertEqual(post_resp.status_code, 200)
+        self.assertEqual(post_resp.json()["active_model"], "tiny.en")
+
+        # Setting unrecognized model should return 404
+        bad_resp = self.client.post("/models/active/nonexistent_model_12345")
+        self.assertEqual(bad_resp.status_code, 404)
 
     def test_devices_endpoint(self):
         """Test GET /devices returns available audio input devices."""

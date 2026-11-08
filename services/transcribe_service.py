@@ -898,9 +898,18 @@ class TranscribeService:
         
         # If the user brought their own key for this model's provider, call that provider directly
         # (lowest latency, billed to the user) even when Dicty Cloud is the selected account mode.
+        has_dicty_session = False
+        try:
+            import auth
+            session = auth.SecureAuthManager.get_session()
+            if session and session.get("jwt_token"):
+                has_dicty_session = True
+        except Exception:
+            pass
+
         own_provider = direct_provider_for_model(model_name)
         has_own_key = bool(own_provider and get_stt_key(own_provider))
-        is_dicty_cloud = provider == "dicty_cloud" and not has_own_key
+        is_dicty_cloud = (provider == "dicty_cloud" or (not has_own_key and has_dicty_session)) and not has_own_key
         if provider == "dicty_cloud" and has_own_key:
             print(f"[*] [Cloud STT] Using your own {own_provider} key for '{model_name}' (bypassing Dicty Cloud)")
         fallback_note = ""

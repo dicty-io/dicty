@@ -54,25 +54,18 @@ _active_text_model_lock = asyncio.Lock()
 @router.post("/models/active_text/{model_id:path}")
 async def set_active_text_model(model_id: str):
     manager = ModelManager()
-    import local_llm
-    # If model is a remote/cloud identifier containing '/', check if cloud provider or reject
-    if "/" in model_id:
-        models = manager.get_available_models()
-        target = next((m for m in models if m["id"] == model_id), None)
-        if not target or not target.get("is_cloud", False):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Model '{model_id}' is not supported by the local text runner."
-            )
-    elif not manager.is_model_downloaded(model_id):
+    models = manager.get_available_models()
+    target = next((m for m in models if m["id"] == model_id), None)
+    if not target:
         raise HTTPException(
-            status_code=400,
-            detail=f"Model '{model_id}' is not installed. Please download it before setting as active."
+            status_code=404,
+            detail=f"Model '{model_id}' is not recognized."
         )
 
+    import local_llm
     async with _active_text_model_lock:
         manager.set_active_text_model(model_id)
-        if local_llm.is_server_running():
+        if manager.is_model_downloaded(model_id) and local_llm.is_server_running():
             try:
                 switch_ok = await asyncio.to_thread(local_llm.switch_model, model_id)
                 if not switch_ok:
@@ -93,32 +86,37 @@ async def set_active_text_model(model_id: str):
 @router.post("/models/active/{model_id:path}")
 async def set_active_model(model_id: str):
     manager = ModelManager()
-    if not manager.is_model_downloaded(model_id):
+    models = manager.get_available_models()
+    target = next((m for m in models if m["id"] == model_id), None)
+    if not target:
         raise HTTPException(
-            status_code=400,
-            detail=f"Model '{model_id}' is not installed. Please download it before setting as active."
+            status_code=404,
+            detail=f"Model '{model_id}' is not recognized."
         )
     manager.set_active_model(model_id)
     load_dotenv(override=True)
-    models = manager.get_available_models()
-    active_model_dict = next((m for m in models if m["id"] == model_id), None)
-    is_cloud_model = bool((active_model_dict and active_model_dict.get("is_cloud", False)) or ("/" in model_id) or model_id in ["whisper-1", "deepgram/nova-3"])
+
+    is_cloud_model = bool((target and target.get("is_cloud", False)) or ("/" in model_id) or model_id in ["whisper-1", "deepgram/nova-3"])
     if is_cloud_model:
         stop_whisper_server()
-    elif whisper_server.keep_model_loaded:
-        stop_whisper_server()
-        import time
-        time.sleep(1)
-        start_whisper_server()
-    telemetry.track("model_switched", {"model_id": model_id})
+        telemetry.track("model_switched", {"model_id": model_id})
+    elif manager.is_model_downloaded(model_id):
+        if whisper_server.keep_model_loaded:
+            stop_whisper_server()
+            import time
+            time.sleep(1)
+            start_whisper_server()
+        telemetry.track("model_switched", {"model_id": model_id})
 
-    # Trigger async prewarm and CUDA warmup in background for instant first utterance
-    try:
-        from transcribe_service import prewarm_faster_whisper
-        import threading
-        threading.Thread(target=prewarm_faster_whisper, args=(model_id,), daemon=True).start()
-    except Exception as err:
-        print(f"[*] Prewarm dispatch note: {err}")
+        # Trigger async prewarm and CUDA warmup in background for instant first utterance
+        try:
+            from transcribe_service import prewarm_faster_whisper
+            import threading
+            threading.Thread(target=prewarm_faster_whisper, args=(model_id,), daemon=True).start()
+        except Exception as err:
+            print(f"[*] Prewarm dispatch note: {err}")
+    else:
+        telemetry.track("model_switched", {"model_id": model_id})
 
     return {"status": "success", "active_model": model_id}
 

@@ -558,8 +558,20 @@ async def process_transcription(
     ]
     # If the text matches a known Whisper hallucination, or is extremely short (under 4 chars)
     if not snippet_only and (clean_text in hallucinations or len(clean_text) < 4):
-        print(f"[*] Ignored empty recording or background noise (Raw text: '{raw_text}')")
-        return {"status": "ignored", "message": "Audio was empty or contained only background noise."}
+        audio_dur = 0.0
+        for p in [mixed_audio_path, target_audio, audio_path]:
+            if p and os.path.exists(p):
+                try:
+                    audio_dur = max(audio_dur, os.path.getsize(p) / 32000.0)
+                except Exception:
+                    pass
+        if audio_dur >= 0.8:
+            print(f"[*] Audio duration is {audio_dur:.1f}s but STT yielded '{raw_text}'. Preserving recording in History for reprocessing.")
+            raw_text = "[No speech recognized]"
+            spoken_text = raw_text
+        else:
+            print(f"[*] Ignored empty recording or background noise (Raw text: '{raw_text}', duration: {audio_dur:.2f}s)")
+            return {"status": "ignored", "message": "Audio was empty or contained only background noise."}
         
     engine_time = time.time() - start_time
     # Avoid microsecond division spikes on pre-transcribed / VAD streaming text

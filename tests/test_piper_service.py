@@ -6,6 +6,12 @@ import os
 from piper_service import PiperService, PIPER_VOICES_CONFIG
 from tts_service import TTSService
 
+try:
+    from piper import PiperVoice  # noqa: F401
+    HAS_PIPER = True
+except ImportError:
+    HAS_PIPER = False
+
 class TestPiperService(unittest.TestCase):
     def setUp(self):
         """Initialize test instance of PiperService and TTSService."""
@@ -24,6 +30,7 @@ class TestPiperService(unittest.TestCase):
             self.assertIn("name", v)
             self.assertIn("installed", v)
 
+    @unittest.skipUnless(HAS_PIPER, "piper-tts not installed")
     def test_piper_german_synthesis(self):
         """Verify German speech synthesis produces valid WAV audio."""
         try:
@@ -52,6 +59,7 @@ class TestPiperService(unittest.TestCase):
             duration = wf.getnframes() / float(wf.getframerate())
             self.assertGreater(duration, 0.5)
 
+    @unittest.skipUnless(HAS_PIPER, "piper-tts not installed")
     def test_piper_russian_synthesis(self):
         """Verify Russian speech synthesis produces valid WAV audio."""
         try:
@@ -79,6 +87,7 @@ class TestPiperService(unittest.TestCase):
             duration = wf.getnframes() / float(wf.getframerate())
             self.assertGreater(duration, 0.5)
 
+    @unittest.skipUnless(HAS_PIPER, "piper-tts not installed")
     def test_tts_service_piper_dispatch(self):
         """Verify TTSService routes synthesis to Piper backend when voice prefix is piper:."""
         try:
