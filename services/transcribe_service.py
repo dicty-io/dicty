@@ -899,18 +899,15 @@ class TranscribeService:
         
         # If the user brought their own key for this model's provider, call that provider directly
         # (lowest latency, billed to the user) even when Dicty Cloud is the selected account mode.
-        has_dicty_session = False
-        try:
-            import auth
-            session = auth.SecureAuthManager.get_session()
-            if session and session.get("jwt_token"):
-                has_dicty_session = True
-        except Exception:
-            pass
-
         own_provider = direct_provider_for_model(model_name)
         has_own_key = bool(own_provider and get_stt_key(own_provider))
-        is_dicty_cloud = (provider == "dicty_cloud" or (not has_own_key and has_dicty_session)) and not has_own_key
+        jwt_available = False
+        try:
+            import auth
+            jwt_available = bool(auth.SecureAuthManager.get_jwt_token())
+        except Exception:
+            pass
+        is_dicty_cloud = (provider == "dicty_cloud" or (not has_own_key and model_name.startswith("deepgram/") and jwt_available)) and not has_own_key
         if provider == "dicty_cloud" and has_own_key:
             print(f"[*] [Cloud STT] Using your own {own_provider} key for '{model_name}' (bypassing Dicty Cloud)")
         fallback_note = ""
@@ -1204,8 +1201,14 @@ class TranscribeService:
         )
         if not skip_cloud and is_cloud_model:
             own = direct_provider_for_model(active_model_id)
+            has_cloud_jwt = False
+            try:
+                import auth
+                has_cloud_jwt = bool(auth.SecureAuthManager.get_jwt_token())
+            except Exception:
+                pass
             has_api_key = bool(openai_api_key or openrouter_key or get_stt_key("openai") or os.getenv("OPENROUTER_API_KEY")
-                               or (own and get_stt_key(own)) or provider == "dicty_cloud")
+                               or (own and get_stt_key(own)) or provider == "dicty_cloud" or has_cloud_jwt)
             if has_api_key:
                 print(f"[*] Target model is Cloud ({active_model_id}). Routing directly to Cloud API...")
                 try:

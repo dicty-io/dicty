@@ -563,14 +563,15 @@ async def process_transcription(
         for p in [mixed_audio_path, mic_audio_path, audio_path]:
             if p and isinstance(p, str):
                 p_name = os.path.basename(p)
-                for ad in allowed_dirs:
-                    cand = os.path.join(ad, p_name)
-                    if os.path.exists(cand):
+                if re.fullmatch(r"[A-Za-z0-9._-]+\.wav", p_name):
+                    for ad in allowed_dirs:
+                        cand = os.path.realpath(os.path.join(ad, p_name))
                         try:
-                            audio_dur = max(audio_dur, os.path.getsize(cand) / 32000.0)
+                            if os.path.commonpath([ad, cand]) == ad and os.path.exists(cand):
+                                audio_dur = max(audio_dur, os.path.getsize(cand) / 32000.0)
+                                break
                         except Exception:
                             pass
-                        break
         if audio_dur >= 0.8:
             print(f"[*] Audio duration is {audio_dur:.1f}s but STT yielded '{raw_text}'. Preserving recording in History for reprocessing.")
             raw_text = "[No speech recognized]"

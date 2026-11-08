@@ -477,23 +477,25 @@ async def stop_recording(
                 playback_src = temp_mixed or target_audio
                 if playback_src and dest_audio:
                     src_name = os.path.basename(playback_src)
-                    allowed_dirs = [os.path.realpath(HISTORY_DIR), os.path.realpath(INPUT_DIR), os.path.realpath(DATA_DIR), os.path.realpath(tempfile.gettempdir())]
-                    valid_src = None
-                    for ad in allowed_dirs:
-                        cand = os.path.join(ad, src_name)
-                        if os.path.exists(cand):
-                            valid_src = cand
-                            break
-                    if valid_src and os.path.abspath(valid_src) != os.path.abspath(dest_audio):
-                        shutil.copy2(valid_src, dest_audio)
+                    if re.fullmatch(r"[A-Za-z0-9._-]+\.wav", src_name):
+                        allowed_dirs = [os.path.realpath(HISTORY_DIR), os.path.realpath(INPUT_DIR), os.path.realpath(DATA_DIR), os.path.realpath(tempfile.gettempdir())]
+                        for ad in allowed_dirs:
+                            cand = os.path.realpath(os.path.join(ad, src_name))
+                            try:
+                                if os.path.commonpath([ad, cand]) == ad and os.path.exists(cand):
+                                    if cand != dest_audio:
+                                        shutil.copy2(cand, dest_audio)
+                                    break
+                            except Exception:
+                                pass
 
-                error_msg = str(exc)
+                err_type = type(exc).__name__
                 record_payload = {
                     "id": record_id,
                     "timestamp": timestamp,
                     "title": "Recording (Failed)",
                     "tags": ["failed"],
-                    "text": f"[Transcription Error: {error_msg}]",
+                    "text": f"[Transcription Error: {err_type}]",
                     "raw_text": "",
                     "mode": effective_mode,
                     "audio_file": dest_audio,
@@ -510,10 +512,10 @@ async def stop_recording(
 
         res = {
             "status": "error",
-            "error": str(exc),
+            "error": f"Transcription error ({type(exc).__name__})",
             "text": "",
             "record_id": record_id,
-            "message": f"Transcription error: {str(exc)}. Audio preserved in History for reprocessing."
+            "message": "Transcription failed. Audio preserved in History for reprocessing."
         }
     finally:
         if temp_mixed and os.path.exists(temp_mixed):
