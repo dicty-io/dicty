@@ -19,6 +19,13 @@ updates:
       python-dependencies:
         patterns:
           - "*"
+    ignore:
+      - dependency-name: "nvidia-cublas-cu12"
+        versions: ["12.9.3.13"]
+      - dependency-name: "numpy"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "scipy"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   # 3. macOS Swift Client Dependencies (DictyClient/Package.swift)
   - package-ecosystem: "swift"
