@@ -24,7 +24,14 @@ from services.status import active_websockets, broadcast_partial_transcription, 
 from services.stores import app_rules_manager, history_manager, snippets_manager, vocabulary_manager
 from services.origins import is_origin_allowed
 from services.audio import mix_audio, play_pause_chime, play_resume_chime, play_start_chime, play_stop_chime
-from services.state import model_manager, recorder
+from services.state import (
+    cancel_active_processing,
+    model_manager,
+    recorder,
+    register_processing_task,
+    transcriber,
+    unregister_processing_task,
+)
 from telemetry_service import telemetry
 from services import pipeline
 from services import status
@@ -250,52 +257,41 @@ async def stop_recording(
     if not was_recording and file is None and not audio_file_path:
         return {"status": "not_recording"}
 
-    # Snapshot speech route belonging to this recording session and immediately clear
-    # recorder.last_cloud_route so a subsequent recording does not have its route wiped.
-    snapshot_speech_route = speech_route or (getattr(recorder, "last_cloud_route", "") if was_recording else "") or llm_provider
-    if was_recording and hasattr(recorder, "last_cloud_route"):
-        recorder.last_cloud_route = ""
-    
-    play_stop_chime()
-    t_start = time.perf_counter()
-    
-    set_status("Packaging audio...")
-    t_mic_0 = time.perf_counter()
-    success = False
-    effective_client_audio = None
+    current_task = asyncio.current_task()
+    if current_task:
+        register_processing_task(current_task)
+    temp_mixed = None
+    try:
+        # Snapshot speech route belonging to this recording session and immediately clear
+        # recorder.last_cloud_route so a subsequent recording does not have its route wiped.
+        snapshot_speech_route = speech_route or (getattr(recorder, "last_cloud_route", "") if was_recording else "") or llm_provider
+        if was_recording and hasattr(recorder, "last_cloud_route"):
+            recorder.last_cloud_route = ""
+        
+        play_stop_chime()
+        t_start = time.perf_counter()
+        
+        set_status("Packaging audio...")
+        t_mic_0 = time.perf_counter()
+        success = False
+        effective_client_audio = None
 
-    # 0. Zero-copy local client audio (same-machine, bypasses multipart binary upload and disk re-writes)
-    if audio_file_path and isinstance(audio_file_path, str) and os.path.exists(audio_file_path):
-        real_p = os.path.realpath(audio_file_path)
-        def _is_contained(p: str, parent: str) -> bool:
-            try:
-                return os.path.commonpath([p, parent]) == parent
-            except Exception:
-                return False
+        # 0. Zero-copy local client audio (same-machine, bypasses multipart binary upload and disk re-writes)
+        if audio_file_path and isinstance(audio_file_path, str) and os.path.exists(audio_file_path):
+            real_p = os.path.realpath(audio_file_path)
+            def _is_contained(p: str, parent: str) -> bool:
+                try:
+                    return os.path.commonpath([p, parent]) == parent
+                except Exception:
+                    return False
 
-        allowed_dirs = [
-            os.path.realpath(tempfile.gettempdir()),
-            os.path.realpath(DATA_DIR),
-            os.path.realpath(INPUT_DIR)
-        ]
-        if any(_is_contained(real_p, d) for d in allowed_dirs) and real_p.lower().endswith(".wav") and os.path.getsize(real_p) > 256:
-            effective_client_audio = real_p
-            success = True
-            if recorder.is_recording:
-                needs_await = bool(recorder.stream_session is not None or (use_vad_streaming.lower() == "true") or mode in ("meeting", "focused_meeting"))
-                if needs_await:
-                    await asyncio.to_thread(recorder.stop, AUDIO_PATH + ".discard", loopback_output_path=SYSTEM_AUDIO_PATH if mode in ("meeting", "focused_meeting") else None, use_vad_streaming=(use_vad_streaming.lower() == "true"))
-                else:
-                    asyncio.create_task(asyncio.to_thread(recorder.stop, AUDIO_PATH + ".discard", use_vad_streaming=False))
-
-    # 1. If client uploaded native mic WAV (macOS AVAudioRecorder), use it immediately without
-    # waiting synchronously for Python's PortAudio recorder thread joins and resampling.
-    if not success and file is not None:
-        try:
-            uploaded_bytes = await file.read()
-            if len(uploaded_bytes) > 512:
-                with open(AUDIO_PATH, "wb") as f_out:
-                    f_out.write(uploaded_bytes)
+            allowed_dirs = [
+                os.path.realpath(tempfile.gettempdir()),
+                os.path.realpath(DATA_DIR),
+                os.path.realpath(INPUT_DIR)
+            ]
+            if any(_is_contained(real_p, d) for d in allowed_dirs) and real_p.lower().endswith(".wav") and os.path.getsize(real_p) > 256:
+                effective_client_audio = real_p
                 success = True
                 if recorder.is_recording:
                     needs_await = bool(recorder.stream_session is not None or (use_vad_streaming.lower() == "true") or mode in ("meeting", "focused_meeting"))
@@ -303,252 +299,284 @@ async def stop_recording(
                         await asyncio.to_thread(recorder.stop, AUDIO_PATH + ".discard", loopback_output_path=SYSTEM_AUDIO_PATH if mode in ("meeting", "focused_meeting") else None, use_vad_streaming=(use_vad_streaming.lower() == "true"))
                     else:
                         asyncio.create_task(asyncio.to_thread(recorder.stop, AUDIO_PATH + ".discard", use_vad_streaming=False))
-        except Exception as up_err:
-            print(f"[!] Failed reading client mic upload: {up_err}")
 
-    # 2. Fall back to Python recorder if client audio was not provided or failed
-    if not success and recorder.is_recording:
-        success = await asyncio.to_thread(recorder.stop, AUDIO_PATH, loopback_output_path=SYSTEM_AUDIO_PATH, use_vad_streaming=(use_vad_streaming.lower() == "true"))
+        # 1. If client uploaded native mic WAV (macOS AVAudioRecorder), use it immediately without
+        # waiting synchronously for Python's PortAudio recorder thread joins and resampling.
+        if not success and file is not None:
+            try:
+                uploaded_bytes = await file.read()
+                if len(uploaded_bytes) > 512:
+                    with open(AUDIO_PATH, "wb") as f_out:
+                        f_out.write(uploaded_bytes)
+                    success = True
+                    if recorder.is_recording:
+                        needs_await = bool(recorder.stream_session is not None or (use_vad_streaming.lower() == "true") or mode in ("meeting", "focused_meeting"))
+                        if needs_await:
+                            await asyncio.to_thread(recorder.stop, AUDIO_PATH + ".discard", loopback_output_path=SYSTEM_AUDIO_PATH if mode in ("meeting", "focused_meeting") else None, use_vad_streaming=(use_vad_streaming.lower() == "true"))
+                        else:
+                            asyncio.create_task(asyncio.to_thread(recorder.stop, AUDIO_PATH + ".discard", use_vad_streaming=False))
+            except Exception as up_err:
+                print(f"[!] Failed reading client mic upload: {up_err}")
 
-    t_mic_ms = (time.perf_counter() - t_mic_0) * 1000.0
-    stream_session = recorder.detach_stream_session()
-    
-    if not success:
-        if stream_session:
-            stream_session.abort()
-        raise HTTPException(status_code=400, detail="Recording failed or was too short.")
+        # 2. Fall back to Python recorder if client audio was not provided or failed
+        if not success and recorder.is_recording:
+            success = await asyncio.to_thread(recorder.stop, AUDIO_PATH, loopback_output_path=SYSTEM_AUDIO_PATH, use_vad_streaming=(use_vad_streaming.lower() == "true"))
 
-    active_model_id = model_manager.get_active_model()
-    models = model_manager.get_available_models()
-    active_model_dict = next((m for m in models if m["id"] == active_model_id), None)
-    is_cloud_model = bool((active_model_dict and active_model_dict.get("is_cloud", False)) or ("/" in active_model_id) or active_model_id in ["whisper-1", "deepgram/nova-3"])
+        t_mic_ms = (time.perf_counter() - t_mic_0) * 1000.0
+        stream_session = recorder.detach_stream_session()
+        
+        if not success:
+            if stream_session:
+                stream_session.abort()
+            raise HTTPException(status_code=400, detail="Recording failed or was too short.")
 
-    final_text = recorder.committed_text.strip() if (getattr(recorder, "committed_text", "") and not is_cloud_model) else None
-    if final_text == "": final_text = None
-    
-    # Determine effective app and resolve per-app mode
-    effective_app_id = (app_id or target_app_bundle_id or getattr(recorder, "last_app_id", "")).strip()
-    effective_domain = (domain or getattr(recorder, "last_domain", "")).strip()
-    effective_mode_override = (mode_override or getattr(recorder, "last_mode_override", "")).strip()
-    effective_manual = (manual_override_active.lower() == "true") or getattr(recorder, "last_manual_override_active", False)
+        active_model_id = model_manager.get_active_model()
+        models = model_manager.get_available_models()
+        active_model_dict = next((m for m in models if m["id"] == active_model_id), None)
+        is_cloud_model = bool((active_model_dict and active_model_dict.get("is_cloud", False)) or ("/" in active_model_id) or active_model_id in ["whisper-1", "deepgram/nova-3"])
 
-    resolved_mode_id, resolved_mode_reason = app_rules_manager.resolve_mode(
-        app_id=effective_app_id,
-        domain=effective_domain,
-        selected_mode_id=mode,
-        recording_override_mode_id=effective_mode_override or None,
-        manual_override_active=effective_manual
-    )
+        final_text = recorder.committed_text.strip() if (getattr(recorder, "committed_text", "") and not is_cloud_model) else None
+        if final_text == "": final_text = None
+        
+        # Determine effective app and resolve per-app mode
+        effective_app_id = (app_id or target_app_bundle_id or getattr(recorder, "last_app_id", "")).strip()
+        effective_domain = (domain or getattr(recorder, "last_domain", "")).strip()
+        effective_mode_override = (mode_override or getattr(recorder, "last_mode_override", "")).strip()
+        effective_manual = (manual_override_active.lower() == "true") or getattr(recorder, "last_manual_override_active", False)
 
-    if resolved_mode_reason in ("user_rule", "builtin_rule", "recording_override"):
-        if resolved_mode_id in ("message", "email", "code", "note", "book", "punctuation_fast"):
-            dictation_format_style = resolved_mode_id
-            effective_mode = "dictation"
-        elif resolved_mode_id == "librarian":
-            effective_mode = "librarian"
-        elif resolved_mode_id in ("meeting", "focused_meeting"):
-            effective_mode = resolved_mode_id
+        resolved_mode_id, resolved_mode_reason = app_rules_manager.resolve_mode(
+            app_id=effective_app_id,
+            domain=effective_domain,
+            selected_mode_id=mode,
+            recording_override_mode_id=effective_mode_override or None,
+            manual_override_active=effective_manual
+        )
+
+        if resolved_mode_reason in ("user_rule", "builtin_rule", "recording_override"):
+            if resolved_mode_id in ("message", "email", "code", "note", "book", "punctuation_fast"):
+                dictation_format_style = resolved_mode_id
+                effective_mode = "dictation"
+            elif resolved_mode_id == "librarian":
+                effective_mode = "librarian"
+            elif resolved_mode_id in ("meeting", "focused_meeting"):
+                effective_mode = resolved_mode_id
+            else:
+                effective_mode = mode if mode != "dictation" else getattr(recorder, "recording_mode", "dictation")
         else:
             effective_mode = mode if mode != "dictation" else getattr(recorder, "recording_mode", "dictation")
-    else:
-        effective_mode = mode if mode != "dictation" else getattr(recorder, "recording_mode", "dictation")
 
-    is_meeting_mode = effective_mode in ("meeting", "focused_meeting")
-    mute_mic_bool = mute_microphone.lower() == "true" or getattr(recorder, "is_muted", False)
-    has_system_audio = os.path.exists(SYSTEM_AUDIO_PATH) and os.path.getsize(SYSTEM_AUDIO_PATH) > 100
+        is_meeting_mode = effective_mode in ("meeting", "focused_meeting")
+        mute_mic_bool = mute_microphone.lower() == "true" or getattr(recorder, "is_muted", False)
+        has_system_audio = os.path.exists(SYSTEM_AUDIO_PATH) and os.path.getsize(SYSTEM_AUDIO_PATH) > 100
 
-    if diarize_bool:
-        effective_separation = "smart_llm"
-    elif speaker_separation in ("off", "you_others", "smart_llm"):
-        effective_separation = speaker_separation
-    elif not speaker_separation:
-        effective_separation = "you_others" if is_meeting_mode else "off"
-    else:
-        effective_separation = "off"
-
-    target_audio = effective_client_audio or AUDIO_PATH
-    temp_mixed = None
-    mic_audio = None
-    if is_meeting_mode and has_system_audio:
-        mic_input = effective_client_audio or AUDIO_PATH
-        if mute_mic_bool:
-            print(f"[*] Selective meeting mode active: microphone muted, using system loopback audio only.")
-            target_audio = SYSTEM_AUDIO_PATH
+        if diarize_bool:
+            effective_separation = "smart_llm"
+        elif speaker_separation in ("off", "you_others", "smart_llm"):
+            effective_separation = speaker_separation
+        elif not speaker_separation:
+            effective_separation = "you_others" if is_meeting_mode else "off"
         else:
-            if effective_separation != "off":
-                print(f"[*] Meeting mode active with speaker separation '{effective_separation}' (tracks separated).")
+            effective_separation = "off"
+
+        target_audio = effective_client_audio or AUDIO_PATH
+
+        mic_audio = None
+        if is_meeting_mode and has_system_audio:
+            mic_input = effective_client_audio or AUDIO_PATH
+            if mute_mic_bool:
+                print(f"[*] Selective meeting mode active: microphone muted, using system loopback audio only.")
                 target_audio = SYSTEM_AUDIO_PATH
-                mic_audio = mic_input
-                temp_mixed = os.path.join(INPUT_DIR, f"mixed_{uuid.uuid4().hex}.wav")
-                mix_audio(SYSTEM_AUDIO_PATH, mic_input, temp_mixed)
             else:
-                print(f"[*] Mixing {effective_mode} system loopback audio with microphone audio...")
-                temp_mixed = os.path.join(INPUT_DIR, f"mixed_{uuid.uuid4().hex}.wav")
-                mix_audio(SYSTEM_AUDIO_PATH, mic_input, temp_mixed)
-                target_audio = temp_mixed
+                if effective_separation != "off":
+                    print(f"[*] Meeting mode active with speaker separation '{effective_separation}' (tracks separated).")
+                    target_audio = SYSTEM_AUDIO_PATH
+                    mic_audio = mic_input
+                    temp_mixed = os.path.join(INPUT_DIR, f"mixed_{uuid.uuid4().hex}.wav")
+                    mix_audio(SYSTEM_AUDIO_PATH, mic_input, temp_mixed)
+                else:
+                    print(f"[*] Mixing {effective_mode} system loopback audio with microphone audio...")
+                    temp_mixed = os.path.join(INPUT_DIR, f"mixed_{uuid.uuid4().hex}.wav")
+                    mix_audio(SYSTEM_AUDIO_PATH, mic_input, temp_mixed)
+                    target_audio = temp_mixed
 
-    if getattr(recorder, "has_paused", False):
-        print("[*] Recording included pause/resume cycles. Using default full-file Whisper transcription for maximum accuracy.")
-        final_text = None
-    elif use_vad_streaming.lower() != "true":
-        print("[*] VAD Streaming disabled by user. Ignoring VAD text to force LLM transcription.")
-        final_text = None
-    elif is_meeting_mode and has_system_audio:
-        print("[*] System audio recorded in meeting mode. Ignoring mic-only VAD text to transcribe full mixed audio.")
-        final_text = None
-    
-    streamed_provider = None
-    if stream_session is not None:
-        if is_meeting_mode or translate_bool:
-            stream_session.abort()
-        else:
-            set_status("Finalizing live transcription...")
-            t_fin = time.perf_counter()
-            streamed = await stream_session.finalize()
-            fin_ms = (time.perf_counter() - t_fin) * 1000.0
-            if streamed:
-                final_text = transcribe_service.postprocess_transcript(streamed, vocabulary_manager.get_all())
-                streamed_provider = stream_session.label
-                TranscribeService.last_whisper_ms = fin_ms
-                TranscribeService.last_provider = stream_session.label
-                print(f"[+] {stream_session.label}: final text ready {fin_ms:.0f} ms after stop")
+        if getattr(recorder, "has_paused", False):
+            print("[*] Recording included pause/resume cycles. Using default full-file Whisper transcription for maximum accuracy.")
+            final_text = None
+        elif use_vad_streaming.lower() != "true":
+            print("[*] VAD Streaming disabled by user. Ignoring VAD text to force LLM transcription.")
+            final_text = None
+        elif is_meeting_mode and has_system_audio:
+            print("[*] System audio recorded in meeting mode. Ignoring mic-only VAD text to transcribe full mixed audio.")
+            final_text = None
+        
+        streamed_provider = None
+        if stream_session is not None:
+            if is_meeting_mode or translate_bool:
+                stream_session.abort()
             else:
-                print(f"[*] {stream_session.label} produced no text; falling back to whole-file transcription")
-                final_text = None
-    
-    skip_cloud_fallback = False
-    if stream_session is not None and getattr(stream_session, 'auth_failed', False):
-        print(f"[*] Cloud streaming encountered auth failure; falling back to full-file Cloud REST STT...")
-    
-    set_status("Fetching GitHub context...")
-    if final_text:
-        print("[*] Using VAD stitched text for dictation!")
-    
-    try:
-        res = await pipeline.process_transcription(
-            target_audio, effective_mode, dictation_format_style, git_provider, github_token, github_repo, gitlab_host, gitlab_token, gitlab_repo, github_commits, github_prs,
-            confluence_url, confluence_space, confluence_user, confluence_token,
-            confluence_page_title, target_type, obsidian_path, linear_api_token, linear_workspace_id, linear_search_all,
-            llm_provider, llm_base_url, llm_model, llm_api_key, openai_api_key, language, translate_bool,
-            enable_auto_completion=auto_complete_bool,
-            enable_self_correction=self_correction_bool,
-            self_correction_model=self_correction_model,
-            pre_transcribed_text=final_text,
-            pre_transcribed_provider=streamed_provider,
-            mode_style=mode_style,
-            correction_location=correction_location,
-            enable_diarization=diarize_bool,
-            diarization_model=diarization_model,
-            target_language=target_language,
-            translation_method=translation_method,
-            translation_model=translation_model,
-            is_incognito=incognito_bool,
-            custom_prompt_text=custom_prompt,
-            tags=tags,
-            speaker_separation=effective_separation,
-            speaker_you_label=speaker_you_label.strip() or "You",
-            meeting_show_timestamps=meeting_show_timestamps.lower() == "true",
-            mic_audio_path=mic_audio,
-            mixed_audio_path=temp_mixed or target_audio,
-            target_app_name=target_app_name,
-            target_app_bundle_id=target_app_bundle_id,
-            app_id=effective_app_id,
-            mode_id=resolved_mode_id,
-            mode_reason=resolved_mode_reason,
-            skip_cloud=skip_cloud_fallback,
-            speech_route=snapshot_speech_route
-        )
-    except Exception as exc:
-        print(f"[!] Critical error in process_transcription: {exc}")
-        res = {
-            "status": "error",
-            "error": "Transcription processing error",
-            "text": "",
-            "message": "Transcription failed."
-        }
-    finally:
+                set_status("Finalizing live transcription...")
+                t_fin = time.perf_counter()
+                streamed = await stream_session.finalize()
+                fin_ms = (time.perf_counter() - t_fin) * 1000.0
+                if streamed:
+                    final_text = transcribe_service.postprocess_transcript(streamed, vocabulary_manager.get_all())
+                    streamed_provider = stream_session.label
+                    TranscribeService.last_whisper_ms = fin_ms
+                    TranscribeService.last_provider = stream_session.label
+                    print(f"[+] {stream_session.label}: final text ready {fin_ms:.0f} ms after stop")
+                else:
+                    print(f"[*] {stream_session.label} produced no text; falling back to whole-file transcription")
+                    final_text = None
+        
+        skip_cloud_fallback = False
+        if stream_session is not None and getattr(stream_session, 'auth_failed', False):
+            print(f"[*] Cloud streaming encountered auth failure; falling back to full-file Cloud REST STT...")
+        
+        set_status("Fetching GitHub context...")
+        if final_text:
+            print("[*] Using VAD stitched text for dictation!")
+        
+        try:
+            res = await pipeline.process_transcription(
+                target_audio, effective_mode, dictation_format_style, git_provider, github_token, github_repo, gitlab_host, gitlab_token, gitlab_repo, github_commits, github_prs,
+                confluence_url, confluence_space, confluence_user, confluence_token,
+                confluence_page_title, target_type, obsidian_path, linear_api_token, linear_workspace_id, linear_search_all,
+                llm_provider, llm_base_url, llm_model, llm_api_key, openai_api_key, language, translate_bool,
+                enable_auto_completion=auto_complete_bool,
+                enable_self_correction=self_correction_bool,
+                self_correction_model=self_correction_model,
+                pre_transcribed_text=final_text,
+                pre_transcribed_provider=streamed_provider,
+                mode_style=mode_style,
+                correction_location=correction_location,
+                enable_diarization=diarize_bool,
+                diarization_model=diarization_model,
+                target_language=target_language,
+                translation_method=translation_method,
+                translation_model=translation_model,
+                is_incognito=incognito_bool,
+                custom_prompt_text=custom_prompt,
+                tags=tags,
+                speaker_separation=effective_separation,
+                speaker_you_label=speaker_you_label.strip() or "You",
+                meeting_show_timestamps=meeting_show_timestamps.lower() == "true",
+                mic_audio_path=mic_audio,
+                mixed_audio_path=temp_mixed or target_audio,
+                target_app_name=target_app_name,
+                target_app_bundle_id=target_app_bundle_id,
+                app_id=effective_app_id,
+                mode_id=resolved_mode_id,
+                mode_reason=resolved_mode_reason,
+                skip_cloud=skip_cloud_fallback,
+                speech_route=snapshot_speech_route
+            )
+        except Exception as exc:
+            print(f"[!] Critical error in process_transcription: {exc}")
+            res = {
+                "status": "error",
+                "error": "Transcription processing error",
+                "text": "",
+                "message": "Transcription failed."
+            }
+        finally:
+            if temp_mixed and os.path.exists(temp_mixed):
+                try: os.remove(temp_mixed)
+                except: pass
+            if os.path.exists(SYSTEM_AUDIO_PATH):
+                try: os.remove(SYSTEM_AUDIO_PATH)
+                except: pass
+
+        t_total_ms = (time.perf_counter() - t_start) * 1000.0
+        whisper_ms = getattr(TranscribeService, 'last_whisper_ms', 0.0)
+        provider_name = getattr(TranscribeService, 'last_provider', 'Speech-to-Text')
+        llm_ms = res.get('llm_ms', 0.0) if isinstance(res, dict) else 0.0
+        post_ms = res.get('post_ms', 0.0) if isinstance(res, dict) else 0.0
+        correction_ms = res.get('correction_ms', 0.0) if isinstance(res, dict) else 0.0
+        overhead_ms = max(0.0, t_total_ms - t_mic_ms - whisper_ms - llm_ms - post_ms - correction_ms)
+
+        text_word_count = len(res.get("text", "").split()) if (isinstance(res, dict) and "text" in res and res.get("text")) else 0
+        speaking_wpm = res.get("avg_speaking_wpm", 0) if isinstance(res, dict) else 0
+        engine_wpm = res.get("avg_engine_wpm", 0) if isinstance(res, dict) else 0
+
+        try:
+            print("\n" + "+-" + "-" * 68 + "-+")
+            print("|          [TIME] DICTY ENGINE STAGE-BY-STAGE TIMING BREAKDOWN         |")
+            print("+-" + "-" * 68 + "-+")
+            print(f"|  Stage 1: Mic Stop & Audio Buffer Flush   | {t_mic_ms:8.1f} ms                |")
+            print(f"|  Stage 2: Audio STT Transcription         | {whisper_ms:8.1f} ms  [{provider_name[:16]:<16}] |")
+            print(f"|  Stage 3: Vocabulary & Regex Normalization| {post_ms:8.1f} ms                |")
+            if correction_ms > 0:
+                print(f"|  Stage 4: Self-Correction ({dictation_format_style[:12]:<12}) | {correction_ms:8.1f} ms                |")
+            if llm_ms > 0:
+                print(f"|  Stage 5: LLM Reformatting ({dictation_format_style[:12]:<12}) | {llm_ms:8.1f} ms                |")
+            print(f"|  Stage 6: Serialization & DB Overhead     | {overhead_ms:8.1f} ms                |")
+            print("+-" + "-" * 68 + "-+")
+            print(f"|  TOTAL END-TO-END ENGINE LATENCY          | {t_total_ms:8.1f} ms ({t_total_ms/1000.0:4.2f} s)          |")
+            print(f"|  Words Transcribed: {text_word_count:<4d}  |  Speaking WPM: {speaking_wpm:<4d}  |  Engine WPM: {engine_wpm:<4d} |")
+            print("+-" + "-" * 68 + "-+\n")
+            if sys.stdout:
+                sys.stdout.flush()
+        except Exception:
+            pass
+
+        if isinstance(res, dict):
+            res["timings"] = {
+                "mic_stop_ms": round(t_mic_ms, 1),
+                "whisper_ms": round(whisper_ms, 1),
+                "provider": provider_name,
+                "post_ms": round(post_ms, 1),
+                "llm_ms": round(llm_ms, 1),
+                "correction_ms": round(correction_ms, 1),
+                "overhead_ms": round(overhead_ms, 1),
+                "total_ms": round(t_total_ms, 1)
+            }
+            res["mode_id"] = resolved_mode_id
+            res["mode_reason"] = resolved_mode_reason
+            res["app_id"] = effective_app_id
+            if effective_app_id and resolved_mode_reason in ("recording_override", "manual_override"):
+                suggestion = app_rules_manager.check_suggestion(
+                    history_records=history_manager.get_all(),
+                    app_id=effective_app_id,
+                    app_name=target_app_name,
+                )
+                if suggestion:
+                    app_rules_manager.mark_suggestion_prompted(effective_app_id)
+                    res["suggestion"] = suggestion
+
+        try:
+            telemetry.track("transcription_completed", {
+                "mode": mode,
+                "dictation_format_style": dictation_format_style,
+                "is_incognito": incognito_bool,
+                "total_latency_ms": round(t_total_ms, 1),
+                "whisper_latency_ms": round(whisper_ms, 1),
+                "llm_latency_ms": round(llm_ms, 1),
+                "correction_latency_ms": round(correction_ms, 1),
+                "text_word_count": text_word_count,
+                "speaking_wpm": speaking_wpm,
+                "engine_wpm": engine_wpm
+            })
+        except Exception:
+            pass
+
+        set_status("Idle")
+        return res
+    except asyncio.CancelledError:
+        print("[*] stop_recording cancelled by user request.")
+        set_status("Idle")
         if temp_mixed and os.path.exists(temp_mixed):
             try: os.remove(temp_mixed)
             except: pass
         if os.path.exists(SYSTEM_AUDIO_PATH):
             try: os.remove(SYSTEM_AUDIO_PATH)
             except: pass
-
-    t_total_ms = (time.perf_counter() - t_start) * 1000.0
-    whisper_ms = getattr(TranscribeService, 'last_whisper_ms', 0.0)
-    provider_name = getattr(TranscribeService, 'last_provider', 'Speech-to-Text')
-    llm_ms = res.get('llm_ms', 0.0) if isinstance(res, dict) else 0.0
-    post_ms = res.get('post_ms', 0.0) if isinstance(res, dict) else 0.0
-    correction_ms = res.get('correction_ms', 0.0) if isinstance(res, dict) else 0.0
-    overhead_ms = max(0.0, t_total_ms - t_mic_ms - whisper_ms - llm_ms - post_ms - correction_ms)
-
-    text_word_count = len(res.get("text", "").split()) if (isinstance(res, dict) and "text" in res and res.get("text")) else 0
-    speaking_wpm = res.get("avg_speaking_wpm", 0) if isinstance(res, dict) else 0
-    engine_wpm = res.get("avg_engine_wpm", 0) if isinstance(res, dict) else 0
-
-    try:
-        print("\n" + "+-" + "-" * 68 + "-+")
-        print("|          [TIME] DICTY ENGINE STAGE-BY-STAGE TIMING BREAKDOWN         |")
-        print("+-" + "-" * 68 + "-+")
-        print(f"|  Stage 1: Mic Stop & Audio Buffer Flush   | {t_mic_ms:8.1f} ms                |")
-        print(f"|  Stage 2: Audio STT Transcription         | {whisper_ms:8.1f} ms  [{provider_name[:16]:<16}] |")
-        print(f"|  Stage 3: Vocabulary & Regex Normalization| {post_ms:8.1f} ms                |")
-        if correction_ms > 0:
-            print(f"|  Stage 4: Self-Correction ({dictation_format_style[:12]:<12}) | {correction_ms:8.1f} ms                |")
-        if llm_ms > 0:
-            print(f"|  Stage 5: LLM Reformatting ({dictation_format_style[:12]:<12}) | {llm_ms:8.1f} ms                |")
-        print(f"|  Stage 6: Serialization & DB Overhead     | {overhead_ms:8.1f} ms                |")
-        print("+-" + "-" * 68 + "-+")
-        print(f"|  TOTAL END-TO-END ENGINE LATENCY          | {t_total_ms:8.1f} ms ({t_total_ms/1000.0:4.2f} s)          |")
-        print(f"|  Words Transcribed: {text_word_count:<4d}  |  Speaking WPM: {speaking_wpm:<4d}  |  Engine WPM: {engine_wpm:<4d} |")
-        print("+-" + "-" * 68 + "-+\n")
-        if sys.stdout:
-            sys.stdout.flush()
-    except Exception:
-        pass
-
-    if isinstance(res, dict):
-        res["timings"] = {
-            "mic_stop_ms": round(t_mic_ms, 1),
-            "whisper_ms": round(whisper_ms, 1),
-            "provider": provider_name,
-            "post_ms": round(post_ms, 1),
-            "llm_ms": round(llm_ms, 1),
-            "correction_ms": round(correction_ms, 1),
-            "overhead_ms": round(overhead_ms, 1),
-            "total_ms": round(t_total_ms, 1)
-        }
-        res["mode_id"] = resolved_mode_id
-        res["mode_reason"] = resolved_mode_reason
-        res["app_id"] = effective_app_id
-        if effective_app_id and resolved_mode_reason in ("recording_override", "manual_override"):
-            suggestion = app_rules_manager.check_suggestion(
-                history_records=history_manager.get_all(),
-                app_id=effective_app_id,
-                app_name=target_app_name,
-            )
-            if suggestion:
-                app_rules_manager.mark_suggestion_prompted(effective_app_id)
-                res["suggestion"] = suggestion
-
-    try:
-        telemetry.track("transcription_completed", {
-            "mode": mode,
-            "dictation_format_style": dictation_format_style,
-            "is_incognito": incognito_bool,
-            "total_latency_ms": round(t_total_ms, 1),
-            "whisper_latency_ms": round(whisper_ms, 1),
-            "llm_latency_ms": round(llm_ms, 1),
-            "correction_latency_ms": round(correction_ms, 1),
-            "text_word_count": text_word_count,
-            "speaking_wpm": speaking_wpm,
-            "engine_wpm": engine_wpm
-        })
-    except Exception:
-        pass
-
-    set_status("Idle")
-    return res
+        if os.path.exists(AUDIO_PATH):
+            try: os.remove(AUDIO_PATH)
+            except: pass
+        return {"status": "cancelled", "text": ""}
+    finally:
+        if current_task:
+            unregister_processing_task(current_task)
 
 @router.websocket("/ws/transcribe/stream")
 async def websocket_transcribe_stream(websocket: WebSocket):
@@ -576,6 +604,8 @@ async def internal_partial(partial: PartialText):
 
 @router.post("/recording/cancel")
 async def cancel_recording():
+    cancel_active_processing()
+    transcriber.cancel_active_transcription()
     if recorder.is_recording:
         session = recorder.detach_stream_session()
         if session:

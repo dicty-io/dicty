@@ -21,7 +21,13 @@ from services.mode_requests import _resolve_mode_request
 from datetime import datetime
 from services.origins import is_origin_allowed
 from services.audio import mix_audio
-from services.state import model_manager, recorder, transcriber
+from services.state import (
+    model_manager,
+    recorder,
+    register_processing_task,
+    transcriber,
+    unregister_processing_task,
+)
 from services import pipeline
 
 router = APIRouter()
@@ -193,62 +199,68 @@ async def transcribe_uploaded_audio(
 
     print(f"\n[*] Client uploaded audio for transcription. Mode: {mode}, Style: {dictation_format_style}, Separation: {effective_separation}, GitHub Repo: {github_repo}, Diarization: {diarize_bool}, Mute Mic: {mute_mic_bool}, Target Language: {target_language}, Translation Method: {translation_method}, Incognito: {incognito_bool}, Tags: {tags}")
     
-    # 1. Stop the microphone recording that Python was running in the background.
-    # Pass use_vad_streaming=False so stop() does not spend up to 1s posting a final VAD chunk
-    # to whisper-server (which isn't used in /transcribe anyway).
-    if recorder.is_recording:
-        await asyncio.to_thread(recorder.stop, AUDIO_PATH, use_vad_streaming=False)
-    if mic_file is not None:
-        try:
-            mic_bytes = await mic_file.read()
-            if len(mic_bytes) > 512:
-                use_client_mic = not os.path.exists(AUDIO_PATH)
-                if not use_client_mic:
-                    try:
-                        with wave.open(AUDIO_PATH, "rb") as w_py:
-                            py_arr = np.frombuffer(w_py.readframes(w_py.getnframes()), dtype=np.int16)
-                        if len(py_arr) == 0 or int(np.max(np.abs(py_arr))) < 64:
-                            use_client_mic = True
-                    except Exception:
-                        use_client_mic = True
-                if use_client_mic:
-                    with open(AUDIO_PATH, "wb") as f_mic_out:
-                        f_mic_out.write(mic_bytes)
-        except Exception as mic_err:
-            print(f"[!] Failed reading client mic_file upload: {mic_err}")
-        
-    temp_path = os.path.join(INPUT_DIR, f"upload_{uuid.uuid4().hex}.wav")
-    with open(temp_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-        
-    target_path = temp_path
+    current_task = asyncio.current_task()
+    if current_task:
+        register_processing_task(current_task)
+    temp_path = None
     mixed_path = None
-    mic_audio = None
-    if mode in ("meeting", "focused_meeting") and os.path.exists(AUDIO_PATH):
-        if not mute_mic_bool:
-            # Skip transcribing the microphone track if the user never spoke into it during the meeting.
-            # Running a second 100s+ WAV through single-threaded whisper-server serialized both requests
-            # on the GPU and doubled transcription time (~12s -> ~24s) just to transcribe silence.
-            if meeting_dialogue.track_has_speech(AUDIO_PATH):
-                mic_audio = AUDIO_PATH
-                mixed_path = os.path.join(INPUT_DIR, f"mixed_{uuid.uuid4().hex}.wav")
-                mix_audio(temp_path, AUDIO_PATH, mixed_path)
-            else:
-                print("[*] Meeting microphone track is silent; skipping mic transcription and mixing.")
-            if effective_separation == "off":
-                if mixed_path:
-                    print(f"[*] Mixing {mode} system audio with microphone audio (separation off)...")
-                    target_path = mixed_path
+    target_path = None
+
+    try:
+        # 1. Stop the microphone recording that Python was running in the background.
+        # Pass use_vad_streaming=False so stop() does not spend up to 1s posting a final VAD chunk
+        # to whisper-server (which isn't used in /transcribe anyway).
+        if recorder.is_recording:
+            await asyncio.to_thread(recorder.stop, AUDIO_PATH, use_vad_streaming=False)
+        if mic_file is not None:
+            try:
+                mic_bytes = await mic_file.read()
+                if len(mic_bytes) > 512:
+                    use_client_mic = not os.path.exists(AUDIO_PATH)
+                    if not use_client_mic:
+                        try:
+                            with wave.open(AUDIO_PATH, "rb") as w_py:
+                                py_arr = np.frombuffer(w_py.readframes(w_py.getnframes()), dtype=np.int16)
+                            if len(py_arr) == 0 or int(np.max(np.abs(py_arr))) < 64:
+                                use_client_mic = True
+                        except Exception:
+                            use_client_mic = True
+                    if use_client_mic:
+                        with open(AUDIO_PATH, "wb") as f_mic_out:
+                            f_mic_out.write(mic_bytes)
+            except Exception as mic_err:
+                print(f"[!] Failed reading client mic_file upload: {mic_err}")
+            
+        temp_path = os.path.join(INPUT_DIR, f"upload_{uuid.uuid4().hex}.wav")
+        with open(temp_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        target_path = temp_path
+        mic_audio = None
+        if mode in ("meeting", "focused_meeting") and os.path.exists(AUDIO_PATH):
+            if not mute_mic_bool:
+                # Skip transcribing the microphone track if the user never spoke into it during the meeting.
+                # Running a second 100s+ WAV through single-threaded whisper-server serialized both requests
+                # on the GPU and doubled transcription time (~12s -> ~24s) just to transcribe silence.
+                if meeting_dialogue.track_has_speech(AUDIO_PATH):
+                    mic_audio = AUDIO_PATH
+                    mixed_path = os.path.join(INPUT_DIR, f"mixed_{uuid.uuid4().hex}.wav")
+                    mix_audio(temp_path, AUDIO_PATH, mixed_path)
                 else:
+                    print("[*] Meeting microphone track is silent; skipping mic transcription and mixing.")
+                if effective_separation == "off":
+                    if mixed_path:
+                        print(f"[*] Mixing {mode} system audio with microphone audio (separation off)...")
+                        target_path = mixed_path
+                    else:
+                        target_path = temp_path
+                else:
+                    print(f"[*] Meeting mode active with speaker separation '{effective_separation}' (tracks separated).")
                     target_path = temp_path
             else:
-                print(f"[*] Meeting mode active with speaker separation '{effective_separation}' (tracks separated).")
+                print(f"[*] Selective meeting mode active: microphone muted, using system audio only.")
                 target_path = temp_path
-        else:
-            print(f"[*] Selective meeting mode active: microphone muted, using system audio only.")
-            target_path = temp_path
-    
-    try:
+        
         # Note: Do NOT use recorder.committed_text (mic-only VAD) for /transcribe,
         # because /transcribe handles uploaded audio and mixed system audio (remote voices)
         # which must be transcribed from target_path via Whisper.
@@ -276,14 +288,19 @@ async def transcribe_uploaded_audio(
             target_app_bundle_id=target_app_bundle_id
         )
         return result
+    except asyncio.CancelledError:
+        print("[*] /transcribe processing cancelled by user request.")
+        return {"status": "cancelled", "text": ""}
     finally:
-        if os.path.exists(temp_path):
+        if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
         if mixed_path and os.path.exists(mixed_path):
             try: os.remove(mixed_path)
             except Exception: pass
-        if target_path != temp_path and os.path.exists(target_path):
+        if target_path and target_path != temp_path and os.path.exists(target_path):
             os.remove(target_path)
+        if current_task:
+            unregister_processing_task(current_task)
 
 
 @router.post("/transcribe/file")

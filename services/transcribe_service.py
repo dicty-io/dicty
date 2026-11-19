@@ -377,7 +377,23 @@ class TranscribeService:
         self.openai_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENROUTER_API_KEY")
         self.whisper_cpp_path = os.getenv("WHISPER_CPP_PATH")
         self.whisper_model_path = os.getenv("WHISPER_MODEL_PATH")
+        self._current_process = None
+        self._is_cancelled = False
         self._ensure_whisper_cpp_binary()
+
+    def cancel_active_transcription(self):
+        """Cancels any running native transcription process (whisper-cli)."""
+        self._is_cancelled = True
+        proc = self._current_process
+        if proc and proc.poll() is None:
+            try:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=0.3)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+            except Exception:
+                pass
 
     def _ensure_whisper_cpp_binary(self) -> str:
         """
@@ -669,14 +685,27 @@ class TranscribeService:
 
         try:
             t_w0 = time.perf_counter()
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+            self._is_cancelled = False
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self._current_process = proc
+            try:
+                stdout, stderr = proc.communicate()
+            finally:
+                self._current_process = None
+
+            if self._is_cancelled:
+                raise asyncio.CancelledError("whisper.cpp execution was cancelled by user.")
+            if proc.returncode != 0:
+                error_msg = stderr or stdout
+                raise RuntimeError(f"whisper.cpp execution failed: {error_msg}")
+
             self.last_whisper_ms = (time.perf_counter() - t_w0) * 1000.0
             self.last_provider = f"whisper-cli ({os.path.basename(model_path)})"
             TranscribeService.last_whisper_ms = self.last_whisper_ms
             TranscribeService.last_provider = self.last_provider
             if with_timestamps:
-                return result.stdout.strip()
-            return normalize_whisper_text(result.stdout)
+                return stdout.strip()
+            return normalize_whisper_text(stdout)
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr or e.stdout
             raise RuntimeError(f"whisper.cpp execution failed: {error_msg}")
