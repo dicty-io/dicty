@@ -871,6 +871,20 @@ struct RecordingOverlayView: View {
                         .progressViewStyle(.circular)
                         .scaleEffect(0.55)
                         .frame(width: 13, height: 13)
+                    Button(action: {
+                        engineClient.cancelRecording()
+                    }) {
+                        Circle()
+                            .fill(Color.white.opacity(0.18))
+                            .frame(width: 13, height: 13)
+                            .overlay(
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 7, weight: .bold))
+                                    .foregroundColor(.white.opacity(0.85))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Cancel Processing (Hold Esc)")
                 }
                 .padding(.vertical, 8)
                 .padding(.horizontal, 3.5)
@@ -997,6 +1011,21 @@ struct RecordingOverlayView: View {
         Group {
             if engineClient.isProcessing {
                 HStack(spacing: 6) {
+                    Button(action: {
+                        engineClient.cancelRecording()
+                    }) {
+                        Circle()
+                            .fill(Color.white.opacity(0.18))
+                            .frame(width: 13, height: 13)
+                            .overlay(
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 7, weight: .bold))
+                                    .foregroundColor(.white.opacity(0.85))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Cancel Processing (Hold Esc)")
+
                     ProgressView()
                         .progressViewStyle(.circular)
                         .scaleEffect(0.55)
@@ -1153,8 +1182,29 @@ struct RecordingOverlayView: View {
     
     private var expandedView: some View {
         VStack(spacing: 10) {
-                // Animated Pulsing Equalizer / Paused Banner / Processing
-                if engineClient.isProcessing {
+                // Animated Pulsing Equalizer / Paused Banner / Processing / Esc Hold
+                if engineClient.isHoldingEscapeToCancel {
+                    HStack(spacing: 8) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.red)
+                        Text("Hold Esc to cancel...")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.white)
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                Capsule()
+                                    .fill(Color.white.opacity(0.2))
+                                Capsule()
+                                    .fill(Color.red)
+                                    .frame(width: geo.size.width * CGFloat(engineClient.escapeHoldProgress))
+                            }
+                        }
+                        .frame(width: 50, height: 6)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .frame(height: 32)
+                } else if engineClient.isProcessing {
                     HStack(spacing: 8) {
                         ProgressView()
                             .progressViewStyle(.circular)
@@ -1250,8 +1300,8 @@ struct RecordingOverlayView: View {
                 AppModeChipView(engineClient: engineClient)
                 
                 // Action Buttons
-                if !engineClient.isProcessing {
-                    HStack(spacing: 7) {
+                HStack(spacing: 7) {
+                    if !engineClient.isProcessing {
                         if engineClient.isRecording {
                             Button(action: {
                                 engineClient.togglePauseRecording()
@@ -1315,28 +1365,36 @@ struct RecordingOverlayView: View {
                         }
                         .buttonStyle(.plain)
                         .help(engineClient.isRecording ? "Stop & Transcribe (\(engineClient.recordShortcutDisplay))" : "Start Recording (\(engineClient.recordShortcutDisplay))")
-                        
-                        if engineClient.isRecording {
-                            Button(action: {
-                                engineClient.cancelRecording()
-                            }) {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "xmark")
-                                        .font(.system(size: 8, weight: .bold))
-                                    Text("Cancel")
-                                        .font(.system(size: 11, weight: .medium))
-                                        .lineLimit(1)
-                                        .fixedSize(horizontal: true, vertical: false)
-                                }
-                                .foregroundColor(.white.opacity(0.9))
-                            }
-                            .buttonStyle(.plain)
-                            .help("Cancel Recording (Discard)")
-                        }
                     }
-                    .fixedSize(horizontal: true, vertical: false)
-                    .frame(maxWidth: .infinity, alignment: .center)
+                    
+                    if engineClient.isRecording || engineClient.isProcessing {
+                        Button(action: {
+                            engineClient.cancelRecording()
+                        }) {
+                            HStack(spacing: 3) {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 8, weight: .bold))
+                                Text("Cancel")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                Text("Hold Esc")
+                                    .font(.system(size: 8, weight: .medium))
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                    .padding(.horizontal, 3.5)
+                                    .padding(.vertical, 1.5)
+                                    .background(Color.white.opacity(0.2))
+                                    .cornerRadius(3)
+                            }
+                            .foregroundColor(.white.opacity(0.9))
+                        }
+                        .buttonStyle(.plain)
+                        .help(engineClient.isProcessing ? "Cancel Processing (Hold Esc)" : "Cancel Recording (Hold Esc)")
+                    }
                 }
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(maxWidth: .infinity, alignment: .center)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)

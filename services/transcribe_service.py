@@ -377,7 +377,46 @@ class TranscribeService:
         self.openai_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENROUTER_API_KEY")
         self.whisper_cpp_path = os.getenv("WHISPER_CPP_PATH")
         self.whisper_model_path = os.getenv("WHISPER_MODEL_PATH")
+        self._proc_lock = threading.Lock()
+        self._active_processes: set = set()
+        self._cancelled_invocations: set = set()
         self._ensure_whisper_cpp_binary()
+
+    @property
+    def _current_process(self):
+        with self._proc_lock:
+            return next(iter(self._active_processes), None)
+
+    @_current_process.setter
+    def _current_process(self, proc):
+        with self._proc_lock:
+            if proc is None:
+                self._active_processes.clear()
+            else:
+                self._active_processes.add(proc)
+
+    @property
+    def _is_cancelled(self):
+        with self._proc_lock:
+            return any(event.is_set() for event in self._cancelled_invocations)
+
+    def cancel_active_transcription(self):
+        """Cancels any running native transcription process (whisper-cli) and signals active invocations."""
+        with self._proc_lock:
+            for event in list(self._cancelled_invocations):
+                event.set()
+            procs = list(self._active_processes)
+
+        for proc in procs:
+            if proc and proc.poll() is None:
+                try:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=0.3)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                except Exception:
+                    pass
 
     def _ensure_whisper_cpp_binary(self) -> str:
         """
@@ -552,134 +591,171 @@ class TranscribeService:
         Transcribes audio using a locally compiled whisper.cpp executable or server.
         Fastest local execution on M-series Macs using Metal/CoreML acceleration.
         """
-        # 1. Try whisper-server for instant transcription first if the active model on server matches
-        from model_manager import ModelManager
-        mm = ModelManager()
-        active_server_model = mm.get_active_model()
-        requested_model = getattr(self, "active_model_id", None) or active_server_model
-        can_use_server = (requested_model == active_server_model)
+        cancel_event = threading.Event()
+        with self._proc_lock:
+            self._cancelled_invocations.add(cancel_event)
 
-        url = local_whisper.INFERENCE_URL
-        client = _get_local_http_client()
-        # Standard dictations (<= 30s) fit within a single Mel window: greedy decoding (beam=1)
-        # is 2x faster, avoids 5 parallel beam evaluations, and preserves complete accuracy.
-        # Long clips (> 30s) use beam=5 and fallback decoding to prevent dropped tails across 30s boundaries.
-        is_long_clip = False
         try:
-            # 16kHz 16-bit mono = 32,000 bytes/sec. 30s = 960,000 bytes.
-            is_long_clip = os.path.getsize(audio_path) > 960000
-        except Exception:
-            pass
+            if cancel_event.is_set():
+                raise asyncio.CancelledError("Transcription was cancelled.")
 
-        beam_size = "5" if is_long_clip else "1"
-        temp_inc = "0.2" if is_long_clip else "0.0"
-
-        if can_use_server:
-            try:
-                with open(audio_path, "rb") as f:
-                    files = {"file": (os.path.basename(audio_path), f, "audio/wav")}
-                    data = {
-                        "response_format": "verbose_json" if with_timestamps else "json",
-                        "language": language,
-                        "temperature": "0.0",
-                        "temperature_inc": temp_inc,
-                        "beam_size": beam_size,
-                        "best_of": beam_size,
-                        "suppress_non_speech": "true",
-                        "entropy_thold": "2.8",
-                        "logprob_thold": "-1.0",
-                        "no_speech_thold": "0.6"
-                    }
-                    if not enable_auto_completion:
-                        data["no_context"] = "true"
-                    if prompt_str and len(prompt_str.strip()) > 0:
-                        data["prompt"] = f"Vocabulary: {prompt_str.strip()}."
-                    if translate_to_english:
-                        data["task"] = "translate"
-                        data["translate"] = "true"
-                    
-                    t_w0 = time.perf_counter()
-                    response = client.post(url, files=files, data=data, timeout=30.0)
-                    self.last_whisper_ms = (time.perf_counter() - t_w0) * 1000.0
-                    self.last_provider = "whisper-server (RAM)"
-                    TranscribeService.last_whisper_ms = self.last_whisper_ms
-                    TranscribeService.last_provider = self.last_provider
-                    response.raise_for_status()
-                    result_json = response.json()
-                        
-                    if with_timestamps and "segments" in result_json:
-                        lines = []
-                        for seg in result_json["segments"]:
-                            start_s = int(seg.get("start", 0))
-                            end_s = int(seg.get("end", 0))
-                            start_str = f"{start_s//60:02d}:{start_s%60:02d}"
-                            end_str = f"{end_s//60:02d}:{end_s%60:02d}"
-                            text = seg.get("text", "").strip()
-                            if text:
-                                lines.append(f"[{start_str} - {end_str}] {text}")
-                        if lines:
-                            print(f"[*] Successfully extracted {len(lines)} timestamped segments in {self.last_whisper_ms:.1f}ms.")
-                            return "\n".join(lines)
-
-                    if "text" in result_json:
-                        print(f"[*] Successfully used whisper-server (Instant RAM Transcription in {self.last_whisper_ms:.1f}ms).")
-                        return result_json["text"].strip()
-            except Exception as e:
-                print(f"[!] whisper-server inference error: {e}")
-
-        # 2. Fall back to Command line whisper.cpp
-        from dotenv import load_dotenv
-        load_dotenv(override=True)
-        
-        cpp_path = self._ensure_whisper_cpp_binary()
-        if not cpp_path or not os.path.exists(cpp_path):
-            raise FileNotFoundError(f"whisper.cpp binary not found at: {cpp_path}")
-
-        model_path = getattr(self, "whisper_model_path", None) or os.getenv("WHISPER_MODEL_PATH")
-        if not model_path or not os.path.exists(model_path):
-            from model_manager import ModelManager, MODELS_DIR
+            # 1. Try whisper-server for instant transcription first if the active model on server matches
+            from model_manager import ModelManager
             mm = ModelManager()
-            active_id = getattr(self, "active_model_id", None) or mm.get_active_model()
-            candidate = mm.get_model_file_path(active_id) or os.path.join(MODELS_DIR, f"ggml-{active_id}.bin")
-            if candidate and os.path.exists(candidate):
-                model_path = candidate
+            active_server_model = mm.get_active_model()
+            requested_model = getattr(self, "active_model_id", None) or active_server_model
+            can_use_server = (requested_model == active_server_model)
+
+            url = local_whisper.INFERENCE_URL
+            client = _get_local_http_client()
+            # Standard dictations (<= 30s) fit within a single Mel window: greedy decoding (beam=1)
+            # is 2x faster, avoids 5 parallel beam evaluations, and preserves complete accuracy.
+            # Long clips (> 30s) use beam=5 and fallback decoding to prevent dropped tails across 30s boundaries.
+            is_long_clip = False
+            try:
+                # 16kHz 16-bit mono = 32,000 bytes/sec. 30s = 960,000 bytes.
+                is_long_clip = os.path.getsize(audio_path) > 960000
+            except Exception:
+                pass
+
+            beam_size = "5" if is_long_clip else "1"
+            temp_inc = "0.2" if is_long_clip else "0.0"
+
+            if can_use_server:
+                try:
+                    with open(audio_path, "rb") as f:
+                        files = {"file": (os.path.basename(audio_path), f, "audio/wav")}
+                        data = {
+                            "response_format": "verbose_json" if with_timestamps else "json",
+                            "language": language,
+                            "temperature": "0.0",
+                            "temperature_inc": temp_inc,
+                            "beam_size": beam_size,
+                            "best_of": beam_size,
+                            "suppress_non_speech": "true",
+                            "entropy_thold": "2.8",
+                            "logprob_thold": "-1.0",
+                            "no_speech_thold": "0.6"
+                        }
+                        if not enable_auto_completion:
+                            data["no_context"] = "true"
+                        if prompt_str and len(prompt_str.strip()) > 0:
+                            data["prompt"] = f"Vocabulary: {prompt_str.strip()}."
+                        if translate_to_english:
+                            data["task"] = "translate"
+                            data["translate"] = "true"
+                        
+                        t_w0 = time.perf_counter()
+                        response = client.post(url, files=files, data=data, timeout=30.0)
+                        if cancel_event.is_set():
+                            raise asyncio.CancelledError("Transcription was cancelled.")
+                        self.last_whisper_ms = (time.perf_counter() - t_w0) * 1000.0
+                        self.last_provider = "whisper-server (RAM)"
+                        TranscribeService.last_whisper_ms = self.last_whisper_ms
+                        TranscribeService.last_provider = self.last_provider
+                        response.raise_for_status()
+                        result_json = response.json()
+                            
+                        if with_timestamps and "segments" in result_json:
+                            lines = []
+                            for seg in result_json["segments"]:
+                                start_s = int(seg.get("start", 0))
+                                end_s = int(seg.get("end", 0))
+                                start_str = f"{start_s//60:02d}:{start_s%60:02d}"
+                                end_str = f"{end_s//60:02d}:{end_s%60:02d}"
+                                text = seg.get("text", "").strip()
+                                if text:
+                                    lines.append(f"[{start_str} - {end_str}] {text}")
+                            if lines:
+                                print(f"[*] Successfully extracted {len(lines)} timestamped segments in {self.last_whisper_ms:.1f}ms.")
+                                return "\n".join(lines)
+
+                        if "text" in result_json:
+                            print(f"[*] Successfully used whisper-server (Instant RAM Transcription in {self.last_whisper_ms:.1f}ms).")
+                            return result_json["text"].strip()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    print(f"[!] whisper-server inference error: {e}")
+
+            # 2. Fall back to Command line whisper.cpp
+            if cancel_event.is_set():
+                raise asyncio.CancelledError("whisper.cpp execution was cancelled by user.")
+
+            from dotenv import load_dotenv
+            load_dotenv(override=True)
+            
+            cpp_path = self._ensure_whisper_cpp_binary()
+            if not cpp_path or not os.path.exists(cpp_path):
+                raise FileNotFoundError(f"whisper.cpp binary not found at: {cpp_path}")
+
+            model_path = getattr(self, "whisper_model_path", None) or os.getenv("WHISPER_MODEL_PATH")
+            if not model_path or not os.path.exists(model_path):
+                from model_manager import ModelManager, MODELS_DIR
+                mm = ModelManager()
+                active_id = getattr(self, "active_model_id", None) or mm.get_active_model()
+                candidate = mm.get_model_file_path(active_id) or os.path.join(MODELS_DIR, f"ggml-{active_id}.bin")
+                if candidate and os.path.exists(candidate):
+                    model_path = candidate
+                    
+            if not model_path or not os.path.exists(model_path):
+                raise FileNotFoundError(f"whisper.cpp model not found at: {model_path}")
+
+            cmd = [
+                cpp_path,
+                "-m", model_path,
+                "-f", audio_path,
+                "-l", language
+            ]
+            if not with_timestamps:
+                cmd.append("-nt")
                 
-        if not model_path or not os.path.exists(model_path):
-            raise FileNotFoundError(f"whisper.cpp model not found at: {model_path}")
+            import platform
+            if platform.machine().lower() not in ["arm64", "aarch64"]:
+                cmd.append("-ng")
+            if translate_to_english:
+                cmd.append("-tr")
+            if not enable_auto_completion:
+                cmd.extend(["-mc", "0", "-sns", "-nth", "0.6", "-et", "2.8", "-lpt", "-1.0"])
+                
+            if prompt_str:
+                cmd.extend(["--prompt", prompt_str])
 
-        cmd = [
-            cpp_path,
-            "-m", model_path,
-            "-f", audio_path,
-            "-l", language
-        ]
-        if not with_timestamps:
-            cmd.append("-nt")
-            
-        import platform
-        if platform.machine().lower() not in ["arm64", "aarch64"]:
-            cmd.append("-ng")
-        if translate_to_english:
-            cmd.append("-tr")
-        if not enable_auto_completion:
-            cmd.extend(["-mc", "0", "-sns", "-nth", "0.6", "-et", "2.8", "-lpt", "-1.0"])
-            
-        if prompt_str:
-            cmd.extend(["--prompt", prompt_str])
+            proc = None
+            try:
+                t_w0 = time.perf_counter()
+                with self._proc_lock:
+                    if cancel_event.is_set():
+                        raise asyncio.CancelledError("whisper.cpp execution was cancelled by user.")
+                    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    self._active_processes.add(proc)
 
-        try:
-            t_w0 = time.perf_counter()
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
-            self.last_whisper_ms = (time.perf_counter() - t_w0) * 1000.0
-            self.last_provider = f"whisper-cli ({os.path.basename(model_path)})"
-            TranscribeService.last_whisper_ms = self.last_whisper_ms
-            TranscribeService.last_provider = self.last_provider
-            if with_timestamps:
-                return result.stdout.strip()
-            return normalize_whisper_text(result.stdout)
-        except subprocess.CalledProcessError as e:
-            error_msg = e.stderr or e.stdout
-            raise RuntimeError(f"whisper.cpp execution failed: {error_msg}")
+                try:
+                    stdout, stderr = proc.communicate()
+                finally:
+                    with self._proc_lock:
+                        if proc is not None:
+                            self._active_processes.discard(proc)
+
+                if cancel_event.is_set():
+                    raise asyncio.CancelledError("whisper.cpp execution was cancelled by user.")
+                if proc.returncode != 0:
+                    error_msg = stderr or stdout
+                    raise RuntimeError(f"whisper.cpp execution failed: {error_msg}")
+
+                self.last_whisper_ms = (time.perf_counter() - t_w0) * 1000.0
+                self.last_provider = f"whisper-cli ({os.path.basename(model_path)})"
+                TranscribeService.last_whisper_ms = self.last_whisper_ms
+                TranscribeService.last_provider = self.last_provider
+                if with_timestamps:
+                    return stdout.strip()
+                return normalize_whisper_text(stdout)
+            except subprocess.CalledProcessError as e:
+                error_msg = e.stderr or e.stdout
+                raise RuntimeError(f"whisper.cpp execution failed: {error_msg}")
+        finally:
+            with self._proc_lock:
+                self._cancelled_invocations.discard(cancel_event)
 
     def transcribe_faster_whisper(self, audio_path: str, prompt_str: str = "", language: str = "auto", translate_to_english: bool = False, enable_auto_completion: bool = False, with_timestamps: bool = False) -> str:
         """
