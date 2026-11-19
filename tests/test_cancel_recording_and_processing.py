@@ -114,6 +114,23 @@ class TestCancelRecordingAndProcessing(unittest.TestCase):
             if os.path.exists(tf_path):
                 os.remove(tf_path)
 
+        # 3. Symlink pointing to audio file should be rejected
+        symlink_path = os.path.join(tempfile.gettempdir(), "dicty_mic_test_symlink.wav")
+        if os.path.islink(symlink_path) or os.path.exists(symlink_path):
+            os.remove(symlink_path)
+        with tempfile.NamedTemporaryFile(suffix=".wav", prefix="dicty_mic_real_", delete=False) as real_tf:
+            real_tf.write(b"RIFF" + b"\x00" * 300)
+            real_tf_path = real_tf.name
+        try:
+            os.symlink(real_tf_path, symlink_path)
+            resp = self.client.post("/recording/stop", data={"audio_file_path": symlink_path})
+            self.assertEqual(resp.status_code, 400)
+        finally:
+            if os.path.islink(symlink_path) or os.path.exists(symlink_path):
+                os.remove(symlink_path)
+            if os.path.exists(real_tf_path):
+                os.remove(real_tf_path)
+
 
 if __name__ == "__main__":
     unittest.main()

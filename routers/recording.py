@@ -180,6 +180,28 @@ async def start_recording(device_id: int = None, language: str = "auto", is_mute
         "mode_reason": mode_reason
     }
 
+def _find_safe_audio_candidate(safe_basename: str) -> str | None:
+    allowed_dirs = [
+        os.path.realpath(tempfile.gettempdir()),
+        os.path.realpath(DATA_DIR),
+        os.path.realpath(INPUT_DIR)
+    ]
+    for ad in allowed_dirs:
+        try:
+            with os.scandir(ad) as it:
+                for entry in it:
+                    if entry.name == safe_basename:
+                        # Reject symlinks to prevent arbitrary link-following escapes
+                        if entry.is_symlink() or not entry.is_file(follow_symlinks=False):
+                            continue
+                        resolved = os.path.realpath(entry.path)
+                        if os.path.commonpath([ad, resolved]) == ad and os.path.getsize(resolved) > 256:
+                            return resolved
+        except Exception:
+            continue
+    return None
+
+
 @router.post("/recording/stop")
 async def stop_recording(
     file: UploadFile = File(None),
@@ -286,25 +308,9 @@ async def stop_recording(
                 and not any(sep in safe_basename for sep in ("/", "\\", ".."))
                 and re.match(r"^[A-Za-z0-9._-]+$", safe_basename)
             ):
-                allowed_dirs = [
-                    os.path.realpath(tempfile.gettempdir()),
-                    os.path.realpath(DATA_DIR),
-                    os.path.realpath(INPUT_DIR)
-                ]
-                resolved_candidate = None
-                for ad in allowed_dirs:
-                    try:
-                        with os.scandir(ad) as it:
-                            for entry in it:
-                                if entry.is_file() and entry.name == safe_basename:
-                                    resolved_candidate = os.path.realpath(entry.path)
-                                    break
-                        if resolved_candidate:
-                            break
-                    except Exception:
-                        continue
+                resolved_candidate = await asyncio.to_thread(_find_safe_audio_candidate, safe_basename)
 
-                if resolved_candidate and os.path.getsize(resolved_candidate) > 256:
+                if resolved_candidate:
                     effective_client_audio = resolved_candidate
                     success = True
                     if recorder.is_recording:
