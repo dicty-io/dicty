@@ -92,6 +92,28 @@ class TestCancelRecordingAndProcessing(unittest.TestCase):
         mock_proc.terminate.assert_called_once()
         transcriber._current_process = None
 
+    def test_stop_recording_audio_file_path_validation(self):
+        """Test that audio_file_path safely validates paths and rejects path traversal."""
+        import tempfile
+
+        # 1. Path traversal attempts should be safely rejected with 400
+        resp = self.client.post("/recording/stop", data={"audio_file_path": "../../etc/passwd"})
+        self.assertEqual(resp.status_code, 400)
+
+        # 2. Legitimate audio file in temp directory is accepted
+        with tempfile.NamedTemporaryFile(suffix=".wav", prefix="dicty_mic_test_", delete=False) as tf:
+            tf.write(b"RIFF" + b"\x00" * 300)
+            tf_path = tf.name
+
+        try:
+            with patch("routers.recording.pipeline.process_transcription") as mock_pipeline:
+                mock_pipeline.return_value = {"status": "ok", "text": "test"}
+                resp = self.client.post("/recording/stop", data={"audio_file_path": tf_path})
+                self.assertEqual(resp.status_code, 200)
+        finally:
+            if os.path.exists(tf_path):
+                os.remove(tf_path)
+
 
 if __name__ == "__main__":
     unittest.main()

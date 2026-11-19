@@ -278,27 +278,30 @@ async def stop_recording(
 
         # 0. Zero-copy local client audio (same-machine, bypasses multipart binary upload and disk re-writes)
         if audio_file_path and isinstance(audio_file_path, str):
-            real_p = os.path.realpath(audio_file_path)
-            def _is_contained(p: str, parent: str) -> bool:
-                try:
-                    return os.path.commonpath([p, parent]) == parent
-                except Exception:
-                    return False
-
-            allowed_dirs = [
-                os.path.realpath(tempfile.gettempdir()),
-                os.path.realpath(DATA_DIR),
-                os.path.realpath(INPUT_DIR)
-            ]
-            if any(_is_contained(real_p, d) for d in allowed_dirs) and real_p.lower().endswith(".wav") and os.path.exists(real_p) and os.path.getsize(real_p) > 256:
-                effective_client_audio = real_p
-                success = True
-                if recorder.is_recording:
-                    needs_await = bool(recorder.stream_session is not None or (use_vad_streaming.lower() == "true") or mode in ("meeting", "focused_meeting"))
-                    if needs_await:
-                        await asyncio.to_thread(recorder.stop, AUDIO_PATH + ".discard", loopback_output_path=SYSTEM_AUDIO_PATH if mode in ("meeting", "focused_meeting") else None, use_vad_streaming=(use_vad_streaming.lower() == "true"))
-                    else:
-                        asyncio.create_task(asyncio.to_thread(recorder.stop, AUDIO_PATH + ".discard", use_vad_streaming=False))
+            safe_basename = os.path.basename(audio_file_path.strip())
+            # Confine to legitimate audio WAV filenames (e.g. dicty_mic_*.wav)
+            if safe_basename.lower().endswith(".wav") and re.match(r"^[A-Za-z0-9._-]+$", safe_basename):
+                allowed_dirs = [
+                    os.path.realpath(tempfile.gettempdir()),
+                    os.path.realpath(DATA_DIR),
+                    os.path.realpath(INPUT_DIR)
+                ]
+                for d in allowed_dirs:
+                    cand = os.path.realpath(os.path.join(d, safe_basename))
+                    try:
+                        if os.path.commonpath([d, cand]) == d and os.path.isfile(cand):
+                            if os.path.getsize(cand) > 256:
+                                effective_client_audio = cand
+                                success = True
+                                if recorder.is_recording:
+                                    needs_await = bool(recorder.stream_session is not None or (use_vad_streaming.lower() == "true") or mode in ("meeting", "focused_meeting"))
+                                    if needs_await:
+                                        await asyncio.to_thread(recorder.stop, AUDIO_PATH + ".discard", loopback_output_path=SYSTEM_AUDIO_PATH if mode in ("meeting", "focused_meeting") else None, use_vad_streaming=(use_vad_streaming.lower() == "true"))
+                                    else:
+                                        asyncio.create_task(asyncio.to_thread(recorder.stop, AUDIO_PATH + ".discard", use_vad_streaming=False))
+                                break
+                    except (ValueError, OSError):
+                        continue
 
         # 1. If client uploaded native mic WAV (macOS AVAudioRecorder), use it immediately without
         # waiting synchronously for Python's PortAudio recorder thread joins and resampling.
