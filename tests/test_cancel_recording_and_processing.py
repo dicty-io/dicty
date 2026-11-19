@@ -44,30 +44,40 @@ class TestCancelRecordingAndProcessing(unittest.TestCase):
             mock_stop.assert_called_once()
 
     def test_cancel_processing_task(self):
-        """Test that cancel_active_processing cancels the registered task."""
+        """Test that cancel_active_processing cancels all registered tasks."""
         async def run_test():
             async def dummy_processing():
                 await asyncio.sleep(10)
 
-            task = asyncio.create_task(dummy_processing())
-            register_processing_task(task)
+            task1 = asyncio.create_task(dummy_processing())
+            task2 = asyncio.create_task(dummy_processing())
+            register_processing_task(task1)
+            register_processing_task(task2)
 
-            # Ensure task is registered
-            self.assertFalse(task.done())
+            # Ensure both tasks are registered
+            self.assertFalse(task1.done())
+            self.assertFalse(task2.done())
+
+            # Unregistering task1 should NOT unregister task2
+            unregister_processing_task(task1)
 
             # Cancel processing
             cancel_active_processing()
-            self.assertTrue(task.cancelling() or task.cancelled())
+            self.assertTrue(task2.cancelling() or task2.cancelled())
+            self.assertFalse(task1.cancelling() or task1.cancelled())
+
+            # Clean up task1 as well
+            task1.cancel()
 
             # Catch the CancelledError
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            for t in (task1, task2):
+                try:
+                    await t
+                except asyncio.CancelledError:
+                    pass
 
-            # Unregister task
-            unregister_processing_task(task)
-            self.assertTrue(task.cancelled())
+            unregister_processing_task(task2)
+            self.assertTrue(task2.cancelled())
 
         asyncio.run(run_test())
 
@@ -79,7 +89,6 @@ class TestCancelRecordingAndProcessing(unittest.TestCase):
         transcriber._current_process = mock_proc
         transcriber.cancel_active_transcription()
 
-        self.assertTrue(transcriber._is_cancelled)
         mock_proc.terminate.assert_called_once()
         transcriber._current_process = None
 

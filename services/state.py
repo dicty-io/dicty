@@ -1,5 +1,5 @@
 import asyncio
-from typing import Optional
+from typing import Set
 from audio_recorder import AudioRecorder
 from git_service import GitService
 from model_manager import ModelManager
@@ -12,24 +12,21 @@ git = GitService()
 updater = UpdateManager()
 model_manager = ModelManager()
 
-_active_processing_task: Optional[asyncio.Task] = None
+_active_processing_tasks: Set[asyncio.Task] = set()
 
 def register_processing_task(task: asyncio.Task) -> None:
     """Registers an in-flight transcription or audio processing asyncio task."""
-    global _active_processing_task
-    _active_processing_task = task
+    _active_processing_tasks.add(task)
 
 def unregister_processing_task(task: asyncio.Task) -> None:
     """Unregisters an in-flight task upon completion or cancellation."""
-    global _active_processing_task
-    if _active_processing_task is task:
-        _active_processing_task = None
+    _active_processing_tasks.discard(task)
 
 def cancel_active_processing() -> None:
-    """Cancels any in-flight transcription or audio processing asyncio task."""
-    global _active_processing_task
-    if _active_processing_task and not _active_processing_task.done():
+    """Cancels any in-flight transcription or audio processing asyncio tasks."""
+    tasks = [t for t in _active_processing_tasks if not t.done()]
+    _active_processing_tasks.clear()
+    for task in tasks:
         print("[*] Cancelling active transcription/processing task on user request...")
-        _active_processing_task.cancel()
-        _active_processing_task = None
+        task.cancel()
 

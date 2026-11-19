@@ -277,7 +277,7 @@ async def stop_recording(
         effective_client_audio = None
 
         # 0. Zero-copy local client audio (same-machine, bypasses multipart binary upload and disk re-writes)
-        if audio_file_path and isinstance(audio_file_path, str) and os.path.exists(audio_file_path):
+        if audio_file_path and isinstance(audio_file_path, str):
             real_p = os.path.realpath(audio_file_path)
             def _is_contained(p: str, parent: str) -> bool:
                 try:
@@ -290,7 +290,7 @@ async def stop_recording(
                 os.path.realpath(DATA_DIR),
                 os.path.realpath(INPUT_DIR)
             ]
-            if any(_is_contained(real_p, d) for d in allowed_dirs) and real_p.lower().endswith(".wav") and os.path.getsize(real_p) > 256:
+            if any(_is_contained(real_p, d) for d in allowed_dirs) and real_p.lower().endswith(".wav") and os.path.exists(real_p) and os.path.getsize(real_p) > 256:
                 effective_client_audio = real_p
                 success = True
                 if recorder.is_recording:

@@ -332,6 +332,7 @@ class EngineClient: ObservableObject {
     @Published var isHoldingEscapeToCancel: Bool = false
     @Published var escapeHoldProgress: Double = 0.0
 
+    private var activeSessionId: UUID = UUID()
     private var escapeHoldTask: Task<Void, Never>? = nil
     private var escapeTriggeredCancel: Bool = false
     let escapeHoldThreshold: TimeInterval = 2.0
@@ -1115,6 +1116,9 @@ class EngineClient: ObservableObject {
         let isDown = Self.isModifierDown(keyCode: keyCode, flags: eventMods)
         
         if isDown {
+            if isHoldingEscapeToCancel {
+                cancelEscapeHold()
+            }
             if now - lastDoubleTapTriggerTime < 0.45 {
                 return
             }
@@ -1304,6 +1308,7 @@ class EngineClient: ObservableObject {
         guard isRecording || isProcessing else { return }
         guard escapeHoldTask == nil else { return }
         
+        let targetSessionId = self.activeSessionId
         escapeTriggeredCancel = false
         isHoldingEscapeToCancel = true
         escapeHoldProgress = 0.0
@@ -1315,11 +1320,19 @@ class EngineClient: ObservableObject {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 50_000_000) // 50ms interval
                 guard let self = self, !Task.isCancelled else { break }
+                guard self.activeSessionId == targetSessionId, (self.isRecording || self.isProcessing) else {
+                    self.cancelEscapeHold()
+                    break
+                }
                 let elapsed = ProcessInfo.processInfo.systemUptime - startTime
                 let progress = min(1.0, elapsed / threshold)
                 self.escapeHoldProgress = progress
                 
                 if elapsed >= threshold {
+                    guard self.activeSessionId == targetSessionId, (self.isRecording || self.isProcessing) else {
+                        self.cancelEscapeHold()
+                        break
+                    }
                     self.escapeTriggeredCancel = true
                     self.cancelRecording()
                     NSSound.beep()
@@ -1363,9 +1376,9 @@ class EngineClient: ObservableObject {
         // Check for Escape key (keyCode 53):
         // Holding Escape for 2 seconds cancels active recording or processing entirely.
         // A short press of Escape must NEVER cancel recordings or processing globally!
-        if keyCode == 53 && eventMods.isEmpty {
-            if eventType == .keyDown {
-                if !isARepeat {
+        if keyCode == 53 {
+            if eventType == .keyDown && !isARepeat {
+                if eventMods.isEmpty {
                     if isLocal && (TTSManager.shared.isSpeaking || TTSManager.shared.isGenerating) {
                         TTSManager.shared.stop()
                         return
@@ -1373,6 +1386,8 @@ class EngineClient: ObservableObject {
                     if isRecording || isProcessing {
                         startEscapeHold()
                     }
+                } else if isHoldingEscapeToCancel {
+                    cancelEscapeHold()
                 }
             } else if eventType == .keyUp {
                 if escapeTriggeredCancel {
@@ -2970,6 +2985,8 @@ class EngineClient: ObservableObject {
             return
         }
         
+        self.activeSessionId = UUID()
+        self.cancelEscapeHold()
         self.isRecording = true
         self.isPaused = false
         self.isMicMuted = ProfileManager.shared.activeProfile?.muteMicrophone ?? false
@@ -3325,6 +3342,7 @@ class EngineClient: ObservableObject {
         
         if !wasRecording && !wasProcessing { return }
         
+        self.activeSessionId = UUID()
         cancelEscapeHold()
         currentProcessingTask?.cancel()
         currentProcessingTask = nil
@@ -3363,11 +3381,19 @@ class EngineClient: ObservableObject {
     private func handleTranscriptionResponse(data: Data, stopStartTime: Date? = nil, httpReceiveTime: Date? = nil) {
         if Task.isCancelled || (!self.isProcessing && !self.isRecording) {
             print("[*] Transcription response discarded because session was cancelled.")
+            DispatchQueue.main.async { [weak self] in
+                self?.activeSessionId = UUID()
+                self?.cancelEscapeHold()
+            }
             return
         }
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             if let status = json["status"] as? String, status == "cancelled" {
                 print("[*] Transcription response marked as cancelled.")
+                DispatchQueue.main.async { [weak self] in
+                    self?.activeSessionId = UUID()
+                    self?.cancelEscapeHold()
+                }
                 return
             }
             var incomingSuggestion: AppRuleSuggestion? = nil
@@ -3447,6 +3473,8 @@ class EngineClient: ObservableObject {
                 self.manualOverrideActive = false
             }
             self.isProcessing = false
+            self.activeSessionId = UUID()
+            self.cancelEscapeHold()
         }
     }
     
