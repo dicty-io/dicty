@@ -1297,6 +1297,14 @@ class TranscribeService:
                 print(f"[!] Target model is Cloud ({active_model_id}) but no API key configured. Falling back to local speech engine...")
 
         if not cloud_success:
+            # If the requested model was cloud-only, ensure local fallback uses an installed local model
+            if is_cloud_model or not (self.whisper_model_path and os.path.exists(self.whisper_model_path)):
+                for candidate in ["small", "base", "tiny", "medium", "large-v3"]:
+                    cand_path = mm.get_model_file_path(candidate)
+                    if cand_path and os.path.exists(cand_path):
+                        self.whisper_model_path = cand_path
+                        break
+
             can_cpp = bool(self.whisper_cpp_path and os.path.exists(self.whisper_cpp_path))
             # find_spec checks availability without importing (importing openai-whisper pulls in torch: 1-2s)
             import importlib.util

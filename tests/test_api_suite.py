@@ -614,6 +614,23 @@ class TestUpdateAndApiSuite(unittest.TestCase):
             self.assertEqual(res.status_code, 401)
             self.assertIn("signature verification failed", res.json().get("detail", "").lower())
 
+    def test_token_submission_accepts_valid_cloud_user(self):
+        """Ensure /auth/token succeeds when Dicty Cloud /auth/me verifies the token."""
+        from unittest.mock import MagicMock
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.read.return_value = b'{"user": {"email": "pro@dicty.io", "is_pro": true, "compute_balance": 500, "subscription_tier": "pro"}}'
+        mock_resp.__enter__.return_value = mock_resp
+
+        with patch("urllib.request.urlopen", return_value=mock_resp), \
+             patch("auth.SecureAuthManager.save_session") as mock_save:
+            res = self.client.post("/auth/token", json={"token": "valid.cloud.token"})
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertEqual(data.get("email"), "pro@dicty.io")
+            self.assertTrue(data.get("is_pro"))
+            mock_save.assert_called_once()
+
     def test_model_manager_path_traversal_protection(self):
         """Ensure ModelManager prevents directory traversal on model deletion."""
         from model_manager import ModelManager

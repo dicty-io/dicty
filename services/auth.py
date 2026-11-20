@@ -141,15 +141,32 @@ class SecureAuthManager:
 
         payload = decode_access_token(token)
         if not payload:
-            SecureAuthManager.clear_session()
-            return {
-                "logged_in": False,
-                "email": None,
-                "is_pro": False,
-                "compute_balance": 0,
-                "subscription_tier": "free",
-                "offline_mode": False
-            }
+            # Check if this is an unexpired cloud-verified session
+            try:
+                claims = jwt.get_unverified_claims(token)
+                exp = claims.get("exp")
+                if exp and isinstance(exp, (int, float)):
+                    if datetime.fromtimestamp(exp, timezone.utc) < datetime.now(timezone.utc):
+                        logger.warning("Cloud session token expired")
+                        SecureAuthManager.clear_session()
+                        return {
+                            "logged_in": False,
+                            "email": None,
+                            "is_pro": False,
+                            "compute_balance": 0,
+                            "subscription_tier": "free",
+                            "offline_mode": False
+                        }
+            except Exception:
+                SecureAuthManager.clear_session()
+                return {
+                    "logged_in": False,
+                    "email": None,
+                    "is_pro": False,
+                    "compute_balance": 0,
+                    "subscription_tier": "free",
+                    "offline_mode": False
+                }
 
         return {
             "logged_in": True,
