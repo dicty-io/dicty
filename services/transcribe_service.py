@@ -10,6 +10,7 @@ import subprocess
 import shutil
 import multiprocessing
 import threading
+from typing import Optional
 from urllib.parse import quote_plus
 from transcript_join import join_transcript_parts, normalize_whisper_text
 
