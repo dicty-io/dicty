@@ -734,13 +734,28 @@ struct RecordingOverlayView: View {
         }
     }
     
+    private var miniViewEdgeInsets: EdgeInsets {
+        switch dockPosition {
+        case .left:
+            return EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 6)
+        case .right:
+            return EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 0)
+        case .top:
+            return EdgeInsets(top: 0, leading: 6, bottom: 6, trailing: 6)
+        case .bottom:
+            return EdgeInsets(top: 6, leading: 6, bottom: 0, trailing: 6)
+        case .freeform:
+            return EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
+        }
+    }
+
     var body: some View {
         ZStack(alignment: contentAlignment) {
             if isExpanded {
                 expandedView
             } else if dockPosition.isVertical {
                 verticalMiniView
-                    .padding(6)
+                    .padding(miniViewEdgeInsets)
                     .onHover { hover in
                         withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
                             isHovering = hover
@@ -748,7 +763,7 @@ struct RecordingOverlayView: View {
                     }
             } else {
                 horizontalMiniView
-                    .padding(6)
+                    .padding(miniViewEdgeInsets)
                     .onHover { hover in
                         withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
                             isHovering = hover
