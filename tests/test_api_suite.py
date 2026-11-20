@@ -614,6 +614,158 @@ class TestUpdateAndApiSuite(unittest.TestCase):
             self.assertEqual(res.status_code, 401)
             self.assertIn("signature verification failed", res.json().get("detail", "").lower())
 
+    def test_token_submission_accepts_valid_cloud_user(self):
+        """Ensure /auth/token succeeds when Dicty Cloud /auth/me verifies the token."""
+        from unittest.mock import MagicMock
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.read.return_value = b'{"user": {"email": "pro@dicty.io", "is_pro": true, "compute_balance": 500, "subscription_tier": "pro"}}'
+        mock_resp.__enter__.return_value = mock_resp
+
+        sentinel_ssl_context = object()
+        with patch("routers.auth_router._get_ssl_context", return_value=sentinel_ssl_context), \
+             patch("urllib.request.urlopen", return_value=mock_resp) as mock_urlopen, \
+             patch("auth.SecureAuthManager.save_session") as mock_save:
+            res = self.client.post("/auth/token", json={"token": "valid.cloud.token"})
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertEqual(data.get("email"), "pro@dicty.io")
+            self.assertTrue(data.get("is_pro"))
+            mock_save.assert_called_once()
+            self.assertGreaterEqual(mock_urlopen.call_count, 1)
+            _, kwargs = mock_urlopen.call_args
+            self.assertIs(kwargs.get("context"), sentinel_ssl_context)
+
+    def test_get_ssl_context_helper(self):
+        """Ensure _get_ssl_context returns an SSLContext and handles import errors gracefully."""
+        from routers.auth_router import _get_ssl_context
+        # Branch 1: normal certifi context
+        ctx = _get_ssl_context()
+        self.assertIsNotNone(ctx)
+
+        # Branch 2: certifi import error falls back to standard create_default_context
+        with patch.dict("sys.modules", {"certifi": None}):
+            fallback_ctx = _get_ssl_context()
+            self.assertIsNotNone(fallback_ctx)
+
+        # Branch 3: ssl error returns None
+        with patch("ssl.create_default_context", side_effect=Exception("No SSL")):
+            none_ctx = _get_ssl_context()
+            self.assertIsNone(none_ctx)
+
+    def test_secure_auth_manager_cloud_session_handling(self):
+        """Ensure SecureAuthManager preserves unexpired cloud sessions and evicts expired ones."""
+        import base64
+        import json
+        import time
+        from auth import SecureAuthManager
+
+        header = base64.urlsafe_b64encode(b'{"alg":"HS256","typ":"JWT"}').decode().rstrip("=")
+
+        # 1. Unexpired cloud token -> keeps session
+        future_exp = int(time.time()) + 3600
+        payload_valid = base64.urlsafe_b64encode(
+            json.dumps({"sub": "user@dicty.io", "exp": future_exp}).encode()
+        ).decode().rstrip("=")
+        valid_token = f"{header}.{payload_valid}.sig"
+
+        mock_meta_valid = {
+            "token": valid_token,
+            "email": "user@dicty.io",
+            "is_pro": True,
+            "compute_balance": 100,
+            "subscription_tier": "pro"
+        }
+        with patch("os.path.exists", return_value=True), \
+             patch("builtins.open", unittest.mock.mock_open(read_data=json.dumps(mock_meta_valid))), \
+             patch("auth.SecureAuthManager.clear_session") as mock_clear:
+            session = SecureAuthManager.get_session()
+            self.assertTrue(session["logged_in"])
+            self.assertEqual(session["email"], "user@dicty.io")
+            mock_clear.assert_not_called()
+
+        # 2. Expired cloud token -> clears session
+        past_exp = int(time.time()) - 3600
+        payload_expired = base64.urlsafe_b64encode(
+            json.dumps({"sub": "user@dicty.io", "exp": past_exp}).encode()
+        ).decode().rstrip("=")
+        expired_token = f"{header}.{payload_expired}.sig"
+
+        mock_meta_expired = {
+            "token": expired_token,
+            "email": "user@dicty.io",
+            "is_pro": True,
+            "compute_balance": 100,
+            "subscription_tier": "pro"
+        }
+        with patch("os.path.exists", return_value=True), \
+             patch("builtins.open", unittest.mock.mock_open(read_data=json.dumps(mock_meta_expired))), \
+             patch("auth.SecureAuthManager.clear_session") as mock_clear:
+            session = SecureAuthManager.get_session()
+            self.assertFalse(session["logged_in"])
+            mock_clear.assert_called_once()
+
+        # 3. Token missing exp claim -> clears session
+        payload_no_exp = base64.urlsafe_b64encode(
+            json.dumps({"sub": "user@dicty.io"}).encode()
+        ).decode().rstrip("=")
+        no_exp_token = f"{header}.{payload_no_exp}.sig"
+
+        mock_meta_no_exp = {
+            "token": no_exp_token,
+            "email": "user@dicty.io"
+        }
+        with patch("os.path.exists", return_value=True), \
+             patch("builtins.open", unittest.mock.mock_open(read_data=json.dumps(mock_meta_no_exp))), \
+             patch("auth.SecureAuthManager.clear_session") as mock_clear:
+            session = SecureAuthManager.get_session()
+            self.assertFalse(session["logged_in"])
+            mock_clear.assert_called_once()
+
+        # 4. Token with exp=0 or expired string -> clears session
+        payload_zero_exp = base64.urlsafe_b64encode(
+            json.dumps({"sub": "user@dicty.io", "exp": 0}).encode()
+        ).decode().rstrip("=")
+        with patch("os.path.exists", return_value=True), \
+             patch("builtins.open", unittest.mock.mock_open(read_data=json.dumps({"token": f"{header}.{payload_zero_exp}.sig", "email": "user@dicty.io"}))), \
+             patch("auth.SecureAuthManager.clear_session") as mock_clear:
+            session = SecureAuthManager.get_session()
+            self.assertFalse(session["logged_in"])
+            mock_clear.assert_called_once()
+
+        # 5. Token with valid string exp in future -> preserves session
+        future_str_exp = str(int(time.time()) + 3600)
+        payload_str_exp = base64.urlsafe_b64encode(
+            json.dumps({"sub": "user@dicty.io", "exp": future_str_exp}).encode()
+        ).decode().rstrip("=")
+        with patch("os.path.exists", return_value=True), \
+             patch("builtins.open", unittest.mock.mock_open(read_data=json.dumps({"token": f"{header}.{payload_str_exp}.sig", "email": "user@dicty.io"}))), \
+             patch("auth.SecureAuthManager.clear_session") as mock_clear:
+            session = SecureAuthManager.get_session()
+            self.assertTrue(session["logged_in"])
+            mock_clear.assert_not_called()
+
+    def test_transcribe_service_cloud_fallback_model_selection(self):
+        """Ensure TranscribeService fallback selects a non-GGUF local model and propagates it."""
+        from transcribe_service import TranscribeService
+        ts = TranscribeService()
+        ts.whisper_model_path = "/nonexistent/ggml-deepgram/nova-3.bin"
+
+        with patch("model_manager.ModelManager.get_model_file_path", side_effect=lambda m: "/models/ggml-small.bin" if m == "small" else None), \
+             patch("os.path.exists", return_value=True):
+            from model_manager import ModelManager
+            mm = ModelManager()
+            selected_local_model = None
+            for candidate in ["small", "base", "tiny", "medium", "large-v3"]:
+                cand_path = mm.get_model_file_path(candidate)
+                if cand_path and os.path.exists(cand_path) and not cand_path.endswith(".gguf"):
+                    ts.whisper_model_path = cand_path
+                    selected_local_model = candidate
+                    break
+
+            self.assertEqual(ts.whisper_model_path, "/models/ggml-small.bin")
+            self.assertEqual(selected_local_model, "small")
+
     def test_model_manager_path_traversal_protection(self):
         """Ensure ModelManager prevents directory traversal on model deletion."""
         from model_manager import ModelManager

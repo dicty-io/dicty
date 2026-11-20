@@ -53,6 +53,19 @@ class StatusResponse(BaseModel):
 CLOUD_URL = os.getenv("DICTY_CLOUD_URL", "https://dicty-backend.dicty-backend.workers.dev").rstrip("/")
 
 
+def _get_ssl_context():
+    try:
+        import certifi
+        import ssl
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        try:
+            import ssl
+            return ssl.create_default_context()
+        except Exception:
+            return None
+
+
 def _cloud_auth_request(path: str, email: str, password: str):
     """POST credentials to the cloud backend. Returns (status_code, json_body)."""
     req = urllib.request.Request(
@@ -62,7 +75,7 @@ def _cloud_auth_request(path: str, email: str, password: str):
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=15, context=_get_ssl_context()) as resp:
             return resp.status, json.loads(resp.read().decode() or "{}")
     except urllib.error.HTTPError as e:
         try:
@@ -156,16 +169,14 @@ async def submit_token(data: TokenSubmit):
 
     cloud_user = None
     try:
-        import urllib.request
-        import json
         req = urllib.request.Request(
-            "https://dicty-backend.dicty-backend.workers.dev/auth/me",
+            f"{CLOUD_URL}/auth/me",
             headers={
                 "Authorization": f"Bearer {token}",
                 "User-Agent": "DictyClient/1.0"
             }
         )
-        with urllib.request.urlopen(req, timeout=5) as response:
+        with urllib.request.urlopen(req, timeout=5, context=_get_ssl_context()) as response:
             if response.status == 200:
                 body = json.loads(response.read().decode())
                 cloud_user = body.get("user")
