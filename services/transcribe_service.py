@@ -757,7 +757,7 @@ class TranscribeService:
             with self._proc_lock:
                 self._cancelled_invocations.discard(cancel_event)
 
-    def transcribe_faster_whisper(self, audio_path: str, prompt_str: str = "", language: str = "auto", translate_to_english: bool = False, enable_auto_completion: bool = False, with_timestamps: bool = False) -> str:
+    def transcribe_faster_whisper(self, audio_path: str, prompt_str: str = "", language: str = "auto", translate_to_english: bool = False, enable_auto_completion: bool = False, with_timestamps: bool = False, model_name: Optional[str] = None) -> str:
         """
         Ultra-fast CTranslate2 local whisper transcription.
         Runs in ~150-300ms on modern multicore CPU/CUDA with int8 quantization.
@@ -765,7 +765,7 @@ class TranscribeService:
         from faster_whisper import WhisperModel
         
         from model_manager import ModelManager
-        active_model = getattr(self, "active_model_id", None) or ModelManager().get_active_model()
+        active_model = model_name or getattr(self, "active_model_id", None) or ModelManager().get_active_model()
         model_size = resolve_faster_whisper_model_name(active_model, language)
 
         global _faster_whisper_cache
@@ -1298,11 +1298,13 @@ class TranscribeService:
 
         if not cloud_success:
             # If the requested model was cloud-only, ensure local fallback uses an installed local model
+            selected_local_model = None
             if is_cloud_model or not (self.whisper_model_path and os.path.exists(self.whisper_model_path)):
                 for candidate in ["small", "base", "tiny", "medium", "large-v3"]:
                     cand_path = mm.get_model_file_path(candidate)
-                    if cand_path and os.path.exists(cand_path):
+                    if cand_path and os.path.exists(cand_path) and not cand_path.endswith(".gguf"):
                         self.whisper_model_path = cand_path
+                        selected_local_model = candidate
                         break
 
             can_cpp = bool(self.whisper_cpp_path and os.path.exists(self.whisper_cpp_path))
@@ -1319,7 +1321,7 @@ class TranscribeService:
             if is_win and can_faster:
                 try:
                     print(f"[*] Attempting local faster-whisper GPU transcription (Language: {language})...")
-                    raw_text = await asyncio.to_thread(self.transcribe_faster_whisper, audio_path, prompt_str, language, translate_to_english=translate_to_english, enable_auto_completion=enable_auto_completion, with_timestamps=with_timestamps)
+                    raw_text = await asyncio.to_thread(self.transcribe_faster_whisper, audio_path, prompt_str, language, translate_to_english=translate_to_english, enable_auto_completion=enable_auto_completion, with_timestamps=with_timestamps, model_name=selected_local_model)
                     transcription_done = True
                 except Exception as faster_err:
                     print(f"[-] Local faster-whisper failed: {faster_err}")
@@ -1336,7 +1338,7 @@ class TranscribeService:
             if not transcription_done and can_faster:
                 try:
                     print(f"[*] Attempting local faster-whisper transcription (Language: {language})...")
-                    raw_text = await asyncio.to_thread(self.transcribe_faster_whisper, audio_path, prompt_str, language, translate_to_english=translate_to_english, enable_auto_completion=enable_auto_completion, with_timestamps=with_timestamps)
+                    raw_text = await asyncio.to_thread(self.transcribe_faster_whisper, audio_path, prompt_str, language, translate_to_english=translate_to_english, enable_auto_completion=enable_auto_completion, with_timestamps=with_timestamps, model_name=selected_local_model)
                     transcription_done = True
                 except Exception as faster_err:
                     print(f"[-] Local faster-whisper failed: {faster_err}")

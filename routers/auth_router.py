@@ -169,10 +169,8 @@ async def submit_token(data: TokenSubmit):
 
     cloud_user = None
     try:
-        import urllib.request
-        import json
         req = urllib.request.Request(
-            "https://dicty-backend.dicty-backend.workers.dev/auth/me",
+            f"{CLOUD_URL}/auth/me",
             headers={
                 "Authorization": f"Bearer {token}",
                 "User-Agent": "DictyClient/1.0"

@@ -128,8 +128,7 @@ class SecureAuthManager:
             except Exception as e:
                 logger.error(f"Failed to read {META_FILE}: {e}")
 
-        token = meta.get("token")
-        if not token or not meta.get("email"):
+        def _empty_session():
             return {
                 "logged_in": False,
                 "email": None,
@@ -139,34 +138,27 @@ class SecureAuthManager:
                 "offline_mode": False
             }
 
+        token = meta.get("token")
+        if not token or not meta.get("email"):
+            return _empty_session()
+
         payload = decode_access_token(token)
         if not payload:
             # Check if this is an unexpired cloud-verified session
             try:
                 claims = jwt.get_unverified_claims(token)
                 exp = claims.get("exp")
-                if exp and isinstance(exp, (int, float)):
-                    if datetime.fromtimestamp(exp, timezone.utc) < datetime.now(timezone.utc):
-                        logger.warning("Cloud session token expired")
-                        SecureAuthManager.clear_session()
-                        return {
-                            "logged_in": False,
-                            "email": None,
-                            "is_pro": False,
-                            "compute_balance": 0,
-                            "subscription_tier": "free",
-                            "offline_mode": False
-                        }
+                if exp is None:
+                    SecureAuthManager.clear_session()
+                    return _empty_session()
+                exp_ts = float(exp)
+                if exp_ts <= 0 or datetime.fromtimestamp(exp_ts, timezone.utc) < datetime.now(timezone.utc):
+                    logger.warning("Cloud session token expired")
+                    SecureAuthManager.clear_session()
+                    return _empty_session()
             except Exception:
                 SecureAuthManager.clear_session()
-                return {
-                    "logged_in": False,
-                    "email": None,
-                    "is_pro": False,
-                    "compute_balance": 0,
-                    "subscription_tier": "free",
-                    "offline_mode": False
-                }
+                return _empty_session()
 
         return {
             "logged_in": True,
