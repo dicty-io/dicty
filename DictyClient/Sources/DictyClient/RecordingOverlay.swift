@@ -737,15 +737,15 @@ struct RecordingOverlayView: View {
     private var miniViewEdgeInsets: EdgeInsets {
         switch dockPosition {
         case .left:
-            return EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 6)
+            return EdgeInsets(top: 3, leading: 0, bottom: 3, trailing: 3)
         case .right:
-            return EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 0)
+            return EdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 0)
         case .top:
-            return EdgeInsets(top: 0, leading: 6, bottom: 6, trailing: 6)
+            return EdgeInsets(top: 0, leading: 3, bottom: 3, trailing: 3)
         case .bottom:
-            return EdgeInsets(top: 6, leading: 6, bottom: 0, trailing: 6)
+            return EdgeInsets(top: 3, leading: 3, bottom: 0, trailing: 3)
         case .freeform:
-            return EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
+            return EdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 3)
         }
     }
 
@@ -829,9 +829,9 @@ struct RecordingOverlayView: View {
         }
         
         return Text(letter)
-            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .font(.system(size: 8, weight: .bold, design: .rounded))
             .foregroundColor(.white)
-            .frame(width: 16, height: 16)
+            .frame(width: 14, height: 14)
             .background(color)
             .clipShape(Circle())
             .shadow(color: color.opacity(0.4), radius: 1, x: 0, y: 1)
@@ -869,7 +869,7 @@ struct RecordingOverlayView: View {
                         lineWidth: 1
                     )
             )
-            .shadow(color: Color.black.opacity(0.35), radius: 6, x: 0, y: 2)
+            .shadow(color: Color.black.opacity(0.35), radius: 3, x: 0, y: 1)
     }
     
     private var cardBackground: some View {
@@ -910,41 +910,42 @@ struct RecordingOverlayView: View {
     private var verticalMiniView: some View {
         Group {
             if engineClient.isProcessing {
-                VStack(spacing: 6) {
+                VStack(spacing: 4) {
                     ProgressView()
-                        .controlSize(.mini)
-                        .frame(width: 16, height: 16)
+                        .progressViewStyle(.circular)
+                        .scaleEffect(0.55)
+                        .frame(width: 13, height: 13)
                     Button(action: {
                         engineClient.cancelRecording()
                     }) {
                         Circle()
                             .fill(Color.white.opacity(0.18))
-                            .frame(width: 18, height: 18)
+                            .frame(width: 13, height: 13)
                             .overlay(
                                 Image(systemName: "xmark")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundColor(.white.opacity(0.9))
+                                    .font(.system(size: 7, weight: .bold))
+                                    .foregroundColor(.white.opacity(0.85))
                             )
                     }
                     .buttonStyle(.plain)
                     .help("Cancel Processing (Hold Esc)")
                 }
                 .padding(.vertical, 8)
-                .padding(.horizontal, 5)
+                .padding(.horizontal, 3.5)
                 .background(capsuleBackground)
             } else if engineClient.isRecording {
-                // Slender vertical recording capsule
-                VStack(spacing: 7) {
+                // WhisperFlow-style slender vertical recording capsule (3x narrower)
+                VStack(spacing: 6) {
                     // Cancel / Discard button (X)
                     Button(action: {
                         engineClient.cancelRecording()
                     }) {
                         Circle()
                             .fill(engineClient.isHoldingEscapeToCancel ? Color.red.opacity(0.85) : Color.white.opacity(0.18))
-                            .frame(width: 18, height: 18)
+                            .frame(width: 13, height: 13)
                             .overlay(
                                 Image(systemName: "xmark")
-                                    .font(.system(size: 9, weight: .bold))
+                                    .font(.system(size: 7, weight: .bold))
                                     .foregroundColor(.white)
                             )
                     }
@@ -952,27 +953,27 @@ struct RecordingOverlayView: View {
                     .help("Cancel Recording (Hold Esc to Discard)")
                     
                     // Slender vertical waveform visualizer
-                    VStack(spacing: 2.5) {
+                    VStack(spacing: 2) {
                         let vol = CGFloat(volumeReceiver.currentVolume * 600.0)
                         let multipliers: [CGFloat] = [0.4, 0.75, 1.0, 0.75, 0.4]
                         ForEach(0..<5, id: \.self) { i in
-                            let w = max(4.0, min(14.0, 4.0 + vol * multipliers[i]))
-                            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                            let w = max(3.0, min(10.0, 3.0 + vol * multipliers[i]))
+                            RoundedRectangle(cornerRadius: 1.0, style: .continuous)
                                 .fill(Color.white.opacity(0.95))
-                                .frame(width: w, height: 2.5)
+                                .frame(width: w, height: 2)
                                 .animation(.interactiveSpring(response: 0.15, dampingFraction: 0.7), value: w)
                         }
                     }
-                    .frame(width: 14, height: 22)
+                    .frame(width: 10, height: 20)
                     
                     if engineClient.isPaused {
                         Circle()
                             .fill(Color.warmAmber)
-                            .frame(width: 5, height: 5)
+                            .frame(width: 4, height: 4)
                     }
                     if engineClient.isMicMuted {
                         Image(systemName: "mic.slash.fill")
-                            .font(.system(size: 8, weight: .bold))
+                            .font(.system(size: 7, weight: .bold))
                             .foregroundColor(Color.warmAmber)
                     }
                     
@@ -982,22 +983,22 @@ struct RecordingOverlayView: View {
                     }) {
                         Circle()
                             .fill(Color.white)
-                            .frame(width: 18, height: 18)
+                            .frame(width: 13, height: 13)
                             .overlay(
                                 Image(systemName: "checkmark")
-                                    .font(.system(size: 9, weight: .bold))
+                                    .font(.system(size: 7, weight: .bold))
                                     .foregroundColor(.black)
                             )
                     }
                     .buttonStyle(.plain)
                     .help("Finish & Transcribe")
                 }
-                .padding(.vertical, 8)
-                .padding(.horizontal, 5)
+                .padding(.vertical, 6)
+                .padding(.horizontal, 3)
                 .background(capsuleBackground)
             } else {
                 // WhisperFlow idle vertical stick ("палочка")
-                VStack(spacing: 6) {
+                VStack(spacing: 5) {
                     if isHovering {
                         // Quick record button
                         Button(action: {
@@ -1005,7 +1006,7 @@ struct RecordingOverlayView: View {
                         }) {
                             Circle()
                                 .fill(Color.red)
-                                .frame(width: 18, height: 18)
+                                .frame(width: 13, height: 13)
                                 .overlay(
                                     Circle().strokeBorder(Color.white.opacity(0.4), lineWidth: 1)
                                 )
@@ -1023,9 +1024,9 @@ struct RecordingOverlayView: View {
                             }
                         }) {
                             Image(systemName: "arrow.up.backward.and.arrow.down.forward")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.system(size: 8, weight: .bold))
                                 .foregroundColor(.white.opacity(0.85))
-                                .frame(width: 18, height: 18)
+                                .frame(width: 13, height: 13)
                         }
                         .buttonStyle(.plain)
                         .help("Expand")
@@ -1033,11 +1034,11 @@ struct RecordingOverlayView: View {
                         // Minimalist stick
                         Capsule(style: .continuous)
                             .fill(Color.white.opacity(0.70))
-                            .frame(width: 4, height: 32)
+                            .frame(width: 3.5, height: 32)
                     }
                 }
-                .padding(.vertical, isHovering ? 8 : 6)
-                .padding(.horizontal, isHovering ? 5 : 4)
+                .padding(.vertical, isHovering ? 6 : 5)
+                .padding(.horizontal, isHovering ? 4 : 3.5)
                 .background(capsuleBackground)
                 .contentShape(Rectangle())
                 .onTapGesture {
@@ -1054,45 +1055,46 @@ struct RecordingOverlayView: View {
     private var horizontalMiniView: some View {
         Group {
             if engineClient.isProcessing {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     Button(action: {
                         engineClient.cancelRecording()
                     }) {
                         Circle()
                             .fill(Color.white.opacity(0.18))
-                            .frame(width: 18, height: 18)
+                            .frame(width: 13, height: 13)
                             .overlay(
                                 Image(systemName: "xmark")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundColor(.white.opacity(0.9))
+                                    .font(.system(size: 7, weight: .bold))
+                                    .foregroundColor(.white.opacity(0.85))
                             )
                     }
                     .buttonStyle(.plain)
                     .help("Cancel Processing (Hold Esc)")
 
                     ProgressView()
-                        .controlSize(.mini)
-                        .frame(width: 16, height: 16)
+                        .progressViewStyle(.circular)
+                        .scaleEffect(0.55)
+                        .frame(width: 13, height: 13)
                     Text(engineClient.processingStatusMessage)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.white.opacity(0.9))
                 }
                 .padding(.horizontal, 10)
-                .padding(.vertical, 5)
+                .padding(.vertical, 4)
                 .background(capsuleBackground)
             } else if engineClient.isRecording {
                 // Slender horizontal recording capsule
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     // Cancel / Discard button (X)
                     Button(action: {
                         engineClient.cancelRecording()
                     }) {
                         Circle()
                             .fill(engineClient.isHoldingEscapeToCancel ? Color.red.opacity(0.85) : Color.white.opacity(0.18))
-                            .frame(width: 18, height: 18)
+                            .frame(width: 13, height: 13)
                             .overlay(
                                 Image(systemName: "xmark")
-                                    .font(.system(size: 9, weight: .bold))
+                                    .font(.system(size: 7, weight: .bold))
                                     .foregroundColor(.white)
                             )
                     }
@@ -1100,36 +1102,36 @@ struct RecordingOverlayView: View {
                     .help("Cancel Recording (Hold Esc to Discard)")
                     
                     if engineClient.isPaused {
-                        HStack(spacing: 4) {
-                            Circle().fill(Color.warmAmber).frame(width: 5, height: 5)
+                        HStack(spacing: 3) {
+                            Circle().fill(Color.warmAmber).frame(width: 4, height: 4)
                             Text("PAUSED")
                                 .font(.system(size: 8, weight: .bold, design: .rounded))
                                 .foregroundColor(.white.opacity(0.9))
                         }
                     } else {
                         // Waveform equalizer bars
-                        HStack(spacing: 2.5) {
+                        HStack(spacing: 2) {
                             let vol = CGFloat(volumeReceiver.currentVolume * 600.0)
                             let multipliers: [CGFloat] = [0.4, 0.75, 1.0, 0.75, 0.4]
                             ForEach(0..<5, id: \.self) { i in
-                                let h = max(4.0, min(14.0, 4.0 + vol * multipliers[i]))
-                                RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                                let h = max(3.0, min(10.0, 3.0 + vol * multipliers[i]))
+                                RoundedRectangle(cornerRadius: 1.0, style: .continuous)
                                     .fill(Color.white.opacity(0.95))
-                                    .frame(width: 2.5, height: h)
+                                    .frame(width: 2, height: h)
                                     .animation(.interactiveSpring(response: 0.15, dampingFraction: 0.7), value: h)
                             }
                         }
-                        .frame(height: 14)
+                        .frame(height: 10)
                     }
                     
                     if engineClient.isMicMuted {
                         Image(systemName: "mic.slash.fill")
-                            .font(.system(size: 8, weight: .bold))
+                            .font(.system(size: 7, weight: .bold))
                             .foregroundColor(Color.warmAmber)
                     }
                     if engineClient.isIncognitoMode {
                         Image(systemName: "eye.slash.fill")
-                            .font(.system(size: 8, weight: .bold))
+                            .font(.system(size: 7, weight: .bold))
                             .foregroundColor(.white.opacity(0.9))
                     }
                     
@@ -1141,22 +1143,22 @@ struct RecordingOverlayView: View {
                     }) {
                         Circle()
                             .fill(Color.white)
-                            .frame(width: 18, height: 18)
+                            .frame(width: 13, height: 13)
                             .overlay(
                                 Image(systemName: "checkmark")
-                                    .font(.system(size: 9, weight: .bold))
+                                    .font(.system(size: 7, weight: .bold))
                                     .foregroundColor(.black)
                             )
                     }
                     .buttonStyle(.plain)
                     .help("Finish & Transcribe")
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
                 .background(capsuleBackground)
             } else {
                 // WhisperFlow idle horizontal stick ("палочка")
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     if isHovering {
                         // Change Mode Menu
                         Menu {
@@ -1183,7 +1185,7 @@ struct RecordingOverlayView: View {
                         }) {
                             Circle()
                                 .fill(Color.red)
-                                .frame(width: 18, height: 18)
+                                .frame(width: 13, height: 13)
                                 .overlay(
                                     Circle().strokeBorder(Color.white.opacity(0.4), lineWidth: 1)
                                 )
@@ -1198,9 +1200,9 @@ struct RecordingOverlayView: View {
                             }
                         }) {
                             Image(systemName: "arrow.up.backward.and.arrow.down.forward")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.system(size: 8, weight: .bold))
                                 .foregroundColor(.white.opacity(0.85))
-                                .frame(width: 18, height: 18)
+                                .frame(width: 13, height: 13)
                         }
                         .buttonStyle(.plain)
                         .help("Expand")
@@ -1208,11 +1210,11 @@ struct RecordingOverlayView: View {
                         // Minimalist stick
                         Capsule(style: .continuous)
                             .fill(Color.white.opacity(0.70))
-                            .frame(width: 32, height: 4)
+                            .frame(width: 32, height: 3.5)
                     }
                 }
-                .padding(.horizontal, isHovering ? 8 : 6)
-                .padding(.vertical, isHovering ? 5 : 4)
+                .padding(.horizontal, isHovering ? 8 : 5)
+                .padding(.vertical, isHovering ? 4 : 3.5)
                 .background(capsuleBackground)
                 .contentShape(Rectangle())
                 .onTapGesture {
