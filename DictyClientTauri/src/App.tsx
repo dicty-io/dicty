@@ -223,6 +223,15 @@ export default function App() {
         const token = localStorage.getItem("dicty_jwt_token") || localStorage.getItem("auth_token");
         if (!token) return;
 
+        // Synchronize cached token to local backend engine with retries if engine is booting
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const currentToken = localStorage.getItem("dicty_jwt_token") || localStorage.getItem("auth_token");
+          if (!currentToken || currentToken !== token) break;
+          const syncRes = await engineApi.submitToken(token);
+          if (syncRes) break;
+          await new Promise((r) => setTimeout(r, Math.min(1000 * (attempt + 1), 3000)));
+        }
+
         const cloudRes = await engineApi.downloadSettingsFromCloud(token);
         if (isMounted && cloudRes) {
           if (cloudRes.vocabulary && Array.isArray(cloudRes.vocabulary)) {

@@ -93,5 +93,38 @@ class PostprocessTests(unittest.TestCase):
         self.assertEqual(out, "ask ChatGPT")
 
 
+class DeepgramLiveStreamingTests(unittest.TestCase):
+    def test_ssl_context_uses_certifi(self):
+        ctx = cs._get_ssl_context()
+        self.assertIsNotNone(ctx)
+
+    def test_ws_connect_includes_ssl_for_wss(self):
+        from unittest.mock import patch
+        with patch("websockets.connect") as mock_connect:
+            mock_connect.return_value = "mock_ws"
+            _ = cs._ws_connect("wss://example.com/v1/listen", {"Authorization": "Bearer test"})
+            mock_connect.assert_called_once()
+            _, kwargs = mock_connect.call_args
+            self.assertIn("ssl", kwargs)
+            self.assertIsNotNone(kwargs["ssl"])
+
+    def test_create_session_with_cloud_token(self):
+        from unittest.mock import patch
+        loop = asyncio.new_event_loop()
+        try:
+            with patch("cloud_streaming.dicty_cloud_token", return_value="fake_jwt_token"), \
+                 patch("transcribe_service.get_stt_key", return_value=None):
+                sess = cs.create_session(
+                    loop, "deepgram/nova-3", 16000,
+                    route_provider="dicty_cloud", language="auto", vocab_words=[]
+                )
+                self.assertIsNotNone(sess)
+                self.assertIsInstance(sess, cs.DeepgramLiveSession)
+                self.assertEqual(sess.relay_token, "fake_jwt_token")
+                self.assertIsNotNone(sess.relay_base_url)
+        finally:
+            loop.close()
+
+
 if __name__ == "__main__":
     unittest.main()

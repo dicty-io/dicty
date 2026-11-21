@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 from passlib.context import CryptContext
@@ -93,29 +94,82 @@ def decode_access_token(token: str) -> Optional[dict]:
         logger.warning(f"JWT signature verification failed: {e}")
         return None
 
+_SESSION_LOCK = threading.Lock()
+
+
 class SecureAuthManager:
     @staticmethod
     def save_session(token: str, email: str, is_pro: bool, compute_balance: int = 0, subscription_tier: str = 'free'):
-        meta = {
-            "token": token,
-            "email": email,
-            "is_pro": is_pro,
-            "compute_balance": compute_balance,
-            "subscription_tier": subscription_tier,
-            "updated_at": datetime.now(timezone.utc).isoformat()
-        }
-        _write_secure_meta(meta)
+        with _SESSION_LOCK:
+            meta = {
+                "token": token,
+                "email": email,
+                "is_pro": is_pro,
+                "compute_balance": compute_balance,
+                "subscription_tier": subscription_tier,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+            _write_secure_meta(meta)
 
     @staticmethod
     def get_jwt_token() -> Optional[str]:
-        if not os.path.exists(META_FILE):
-            return None
-        try:
-            with open(META_FILE, "r", encoding="utf-8") as f:
-                meta = json.load(f)
-                return meta.get("token")
-        except Exception as e:
-            logger.warning(f"Failed to read token from {META_FILE}: {e}")
+        with _SESSION_LOCK:
+            if os.path.exists(META_FILE):
+                try:
+                    with open(META_FILE, "r", encoding="utf-8") as f:
+                        meta = json.load(f)
+                        tok = meta.get("token")
+                        if tok and isinstance(tok, str) and tok.strip():
+                            return tok.strip()
+                except Exception as e:
+                    logger.warning(f"Failed to read token from {META_FILE}: {e}")
+
+            # Fallback for macOS: read cached token from App defaults if auth_meta.json was missing or not yet synced
+            import sys
+            if sys.platform == "darwin":
+                try:
+                    import subprocess
+                    raw = subprocess.check_output(
+                        ["defaults", "read", "com.antigravity.Dicty", "_sec_dicty_jwt_token"],
+                        stderr=subprocess.DEVNULL, timeout=0.5
+                    ).decode().strip()
+                    if raw and "." in raw:
+                        # Re-check META_FILE in case another thread wrote it while subprocess was running
+                        if os.path.exists(META_FILE):
+                            try:
+                                with open(META_FILE, "r", encoding="utf-8") as f:
+                                    meta = json.load(f)
+                                    tok = meta.get("token")
+                                    if tok and isinstance(tok, str) and tok.strip():
+                                        return tok.strip()
+                            except Exception:
+                                pass
+
+                        # Validate that the token is not expired before returning
+                        try:
+                            claims = jwt.get_unverified_claims(raw)
+                            exp = claims.get("exp")
+                            if exp is not None and float(exp) > datetime.now(timezone.utc).timestamp():
+                                email = claims.get("email") or claims.get("sub") or "user@dicty.ai"
+                                raw_pro = claims.get("isPro") if "isPro" in claims else claims.get("is_pro", False)
+                                is_pro = bool(raw_pro)
+                                compute_balance = int(claims.get("computeBalance") or claims.get("compute_balance") or 0)
+                                subscription_tier = str(claims.get("subscriptionTier") or claims.get("subscription_tier") or "free")
+                                meta = {
+                                    "token": raw,
+                                    "email": str(email),
+                                    "is_pro": is_pro,
+                                    "compute_balance": compute_balance,
+                                    "subscription_tier": subscription_tier,
+                                    "updated_at": datetime.now(timezone.utc).isoformat()
+                                }
+                                _write_secure_meta(meta)
+                                return raw
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
             return None
 
     @staticmethod
@@ -174,24 +228,26 @@ class SecureAuthManager:
         if amount <= 0:
             return
         
-        meta = {}
-        if os.path.exists(META_FILE):
-            try:
-                with open(META_FILE, "r", encoding="utf-8") as f:
-                    meta = json.load(f)
-            except Exception as e:
-                logger.error(f"Failed to read {META_FILE}: {e}")
-                return
-                
-        if "compute_balance" in meta:
-            meta["compute_balance"] = max(0, meta["compute_balance"] - amount)
-            meta["updated_at"] = datetime.now(timezone.utc).isoformat()
-            _write_secure_meta(meta)
+        with _SESSION_LOCK:
+            meta = {}
+            if os.path.exists(META_FILE):
+                try:
+                    with open(META_FILE, "r", encoding="utf-8") as f:
+                        meta = json.load(f)
+                except Exception as e:
+                    logger.error(f"Failed to read {META_FILE}: {e}")
+                    return
+                    
+            if "compute_balance" in meta:
+                meta["compute_balance"] = max(0, meta["compute_balance"] - amount)
+                meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+                _write_secure_meta(meta)
 
     @staticmethod
     def clear_session():
-        if os.path.exists(META_FILE):
-            try:
-                os.remove(META_FILE)
-            except Exception as e:
-                logger.warning(f"Failed to remove {META_FILE}: {e}")
+        with _SESSION_LOCK:
+            if os.path.exists(META_FILE):
+                try:
+                    os.remove(META_FILE)
+                except Exception as e:
+                    logger.warning(f"Failed to remove {META_FILE}: {e}")
