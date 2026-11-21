@@ -357,6 +357,8 @@ def postprocess_transcript(raw_text: str, vocab_data: list = None, keep_timestam
         replacement = v.get("replacement", "")
         if word and replacement:
             final_text = re.compile(re.escape(word), re.IGNORECASE).sub(replacement, final_text)
+    from transcript_join import clean_broken_periods
+    final_text = clean_broken_periods(final_text)
     return final_text
 
 
