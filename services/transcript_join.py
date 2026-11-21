@@ -79,14 +79,64 @@ def _boundary_overlap(previous: str, following: str) -> int:
     return 0
 
 
+# Strict non-terminal tokens that can never grammatically end a sentence before a noun/clause
+_STRICT_NON_TERMINALS = {
+    # Articles & possessive determiners
+    "the", "a", "an", "my", "your", "our", "their", "its", "every",
+    # Pure prepositions that cannot end a clause before a noun
+    "with", "of", "from", "into", "onto", "between", "during", "without",
+    # Relative pronouns
+    "whose", "whom",
+    # Russian pure prepositions & conjunctions
+    "с", "со", "к", "ко", "у", "о", "об", "обо", "из", "от", "до", "для",
+    "без", "при", "про", "через", "над", "под", "перед", "чтобы"
+}
+
+_PREP_DEMO_RE = re.compile(
+    r"\b(with|for|to|about|in|on|at|of|from|by|into|through|under)\s+(this|that|these|those)\.\s+([A-Za-zА-Яа-я0-9_]+)",
+    re.IGNORECASE
+)
+
+_STRICT_NON_TERM_RE = re.compile(
+    r"\b(" + "|".join(re.escape(w) for w in _STRICT_NON_TERMINALS) + r")\.\s+([A-Za-zА-Яа-я0-9_]+)",
+    re.IGNORECASE
+)
+
+_RU_PREP_DEMO_RE = re.compile(
+    r"\b(с|со|в|во|на|к|ко|у|о|об|обо|по|из|от|до|для|без|при|про|через|над|под|перед)\s+(этот|эта|это|эти|этого|этому|этим|этом|тот|та|то|те)\.\s+([A-Za-zА-Яа-я0-9_]+)",
+    re.IGNORECASE
+)
+
+
+def _fix_dangling_sub(match: re.Match) -> str:
+    prefix = match.group(0).split(".")[0]
+    next_word = match.groups()[-1]
+    if next_word == "I" or (len(next_word) > 1 and next_word.isupper()):
+        fixed_next = next_word
+    else:
+        fixed_next = next_word[0].lower() + next_word[1:]
+    return f"{prefix} {fixed_next}"
+
+
+def clean_broken_periods(text: str) -> str:
+    """Fix periods incorrectly inserted after non-terminal prepositions, articles, or demonstratives."""
+    if not text:
+        return text
+    text = _PREP_DEMO_RE.sub(_fix_dangling_sub, text)
+    text = _RU_PREP_DEMO_RE.sub(_fix_dangling_sub, text)
+    text = _STRICT_NON_TERM_RE.sub(_fix_dangling_sub, text)
+    return text
+
+
 def _drop_leading_tokens(text: str, count: int) -> str:
     tokens = _TOKEN_RE.findall(text)
     return " ".join(tokens[count:])
 
 
 def _fix_punctuation_spacing(text: str) -> str:
-    """Remove a space that would end up before punctuation, then collapse runs."""
+    """Remove a space that would end up before punctuation, collapse runs, and fix broken periods."""
     text = re.sub(r"\s+([,.!?:;…])", r"\1", text)
+    text = clean_broken_periods(text)
     return _collapse(text)
 
 
