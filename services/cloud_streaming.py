@@ -63,11 +63,24 @@ def _wav_bytes(audio_16k: np.ndarray) -> bytes:
     return buf.getvalue()
 
 
+def _get_ssl_context():
+    """Return an SSL context with certifi CA bundle to ensure verified TLS in packaged builds."""
+    try:
+        import certifi
+        import ssl
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        import ssl
+        return ssl.create_default_context()
+
+
 def _ws_connect(url: str, headers: dict):
     """websockets >= 13 uses `additional_headers`; older versions use `extra_headers`."""
     import inspect
     import websockets
     kw = dict(open_timeout=5, ping_interval=10, max_size=None)
+    if url.startswith("wss://"):
+        kw["ssl"] = _get_ssl_context()
     params = inspect.signature(websockets.connect.__init__).parameters
     if "additional_headers" in params:
         return websockets.connect(url, additional_headers=headers, **kw)

@@ -434,19 +434,21 @@ class EngineClient: ObservableObject {
         fetchAppRules()
         updateMemoryMode()
         
-        // Auto-sync settings & vocabulary on startup if token exists (never crashes if offline)
+        // Auto-sync token to engine and settings/vocabulary on startup if token exists (never crashes if offline)
         if let token = SecretsManager.readSecret(forKey: "dicty_jwt_token"), !token.isEmpty {
+            self.syncTokenToEngine(token: token)
             Task {
                 await self.downloadSettingsFromCloud()
             }
         }
         
-        // Check for subscription changes when the app becomes active
+        // Check for subscription changes and ensure engine token is in sync when the app becomes active
         NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
+            self?.syncTokenToEngine()
             Task { @MainActor in
                 self?.fetchAuthStatus()
             }
@@ -655,6 +657,9 @@ class EngineClient: ObservableObject {
                             defaults.set(expires, forKey: "cachedPlanExpiresAt")
                         }
                         
+                        // Keep local backend engine synchronized with the active token
+                        self.syncTokenToEngine(token: token)
+                        
                         // Auto-sync settings and vocabulary for logged in users
                         Task {
                             await self.downloadSettingsFromCloud()
@@ -808,14 +813,7 @@ class EngineClient: ObservableObject {
                     }
                     
                     // Notify local backend engine of token
-                    if let localTokenUrl = URL(string: "\(self.engineURL)/auth/token") {
-                        var tReq = URLRequest(url: localTokenUrl)
-                        tReq.httpMethod = "POST"
-                        tReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                        let tBody = ["token": token]
-                        tReq.httpBody = try? JSONSerialization.data(withJSONObject: tBody)
-                        EngineEndpoint.shared.session.dataTask(with: tReq).resume()
-                    }
+                    self.syncTokenToEngine(token: token)
                     
                     TelemetryClient.shared.track("user_authenticated", properties: [
                         "is_pro": res.user.isPro
@@ -827,6 +825,32 @@ class EngineClient: ObservableObject {
                 }
             } else if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 401 {
                 SecretsManager.saveSecret("", forKey: "dicty_jwt_token")
+            }
+        }.resume()
+    }
+    
+    // MARK: - Engine Auth Token Synchronization
+    
+    nonisolated func syncTokenToEngine(token: String? = nil, retryCount: Int = 0) {
+        let activeToken = token ?? SecretsManager.readSecret(forKey: "dicty_jwt_token") ?? UserDefaults.standard.string(forKey: "dicty_jwt_token")
+        guard let jwt = activeToken, !jwt.isEmpty else { return }
+        
+        let localTokenUrl = EngineEndpoint.shared.url("/auth/token")
+        var tReq = URLRequest(url: localTokenUrl)
+        tReq.httpMethod = "POST"
+        tReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let tBody = ["token": jwt]
+        tReq.httpBody = try? JSONSerialization.data(withJSONObject: tBody)
+        
+        EngineEndpoint.shared.session.dataTask(with: tReq) { [weak self] _, response, error in
+            if error != nil {
+                if retryCount < 10 {
+                    DispatchQueue.global().asyncAfter(deadline: .now() + Double(min(retryCount + 1, 5))) {
+                        self?.syncTokenToEngine(token: jwt, retryCount: retryCount + 1)
+                    }
+                }
+            } else if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
+                print("[EngineClient] Successfully synchronized auth token with local engine")
             }
         }.resume()
     }
@@ -2469,6 +2493,7 @@ class EngineClient: ObservableObject {
                 let url = URL(string: engineURL + "/models")!
                 let (data, _) = try await EngineEndpoint.shared.session.data(from: url)
                 let resp = try JSONDecoder().decode(ModelsResponse.self, from: data)
+                self.syncTokenToEngine()
                 
                 let activeUrl = URL(string: engineURL + "/models/active")!
                 let (actData, _) = try await EngineEndpoint.shared.session.data(from: activeUrl)

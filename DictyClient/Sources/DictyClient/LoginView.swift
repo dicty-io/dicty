@@ -277,13 +277,7 @@ struct LoginView: View {
                         }
                         
                         // 6. Notify local backend engine of token
-                        let localTokenUrl = EngineEndpoint.shared.url("/auth/token")
-                        var tReq = URLRequest(url: localTokenUrl)
-                        tReq.httpMethod = "POST"
-                        tReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                        let tBody = ["token": res.token]
-                        tReq.httpBody = try? JSONSerialization.data(withJSONObject: tBody)
-                        EngineEndpoint.shared.session.dataTask(with: tReq).resume()
+                        engine.syncTokenToEngine(token: res.token)
                         
                         TelemetryClient.shared.track("user_authenticated", properties: [
                             "is_pro": res.is_pro

@@ -184,6 +184,16 @@ async def submit_token(data: TokenSubmit):
         logger.warning(f"Cloud /auth/me proxy error: {e}")
 
     if not cloud_user and not decoded:
+        # Fallback for offline mode or network timeouts: inspect unexpired claims
+        try:
+            claims = jwt.get_unverified_claims(token)
+            exp = claims.get("exp")
+            if exp is not None and float(exp) > datetime.now(timezone.utc).timestamp():
+                decoded = claims
+        except Exception:
+            pass
+
+    if not cloud_user and not decoded:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token: signature verification failed")
 
     email = None

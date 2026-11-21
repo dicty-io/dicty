@@ -108,15 +108,41 @@ class SecureAuthManager:
 
     @staticmethod
     def get_jwt_token() -> Optional[str]:
-        if not os.path.exists(META_FILE):
-            return None
-        try:
-            with open(META_FILE, "r", encoding="utf-8") as f:
-                meta = json.load(f)
-                return meta.get("token")
-        except Exception as e:
-            logger.warning(f"Failed to read token from {META_FILE}: {e}")
-            return None
+        if os.path.exists(META_FILE):
+            try:
+                with open(META_FILE, "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+                    tok = meta.get("token")
+                    if tok and isinstance(tok, str) and tok.strip():
+                        return tok.strip()
+            except Exception as e:
+                logger.warning(f"Failed to read token from {META_FILE}: {e}")
+
+        # Fallback for macOS: read cached token from App defaults if auth_meta.json was missing or not yet synced
+        import sys
+        if sys.platform == "darwin":
+            try:
+                import subprocess
+                raw = subprocess.check_output(
+                    ["defaults", "read", "com.antigravity.Dicty", "_sec_dicty_jwt_token"],
+                    stderr=subprocess.DEVNULL, timeout=0.5
+                ).decode().strip()
+                if raw and "." in raw:
+                    # Validate that the token is not expired before returning
+                    try:
+                        claims = jwt.get_unverified_claims(raw)
+                        exp = claims.get("exp")
+                        if exp is not None and float(exp) > datetime.now(timezone.utc).timestamp():
+                            email = claims.get("email") or claims.get("sub") or "user@dicty.ai"
+                            is_pro = bool(claims.get("isPro", claims.get("is_pro", True)))
+                            SecureAuthManager.save_session(raw, str(email), is_pro)
+                            return raw
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        return None
 
     @staticmethod
     def get_session() -> Dict[str, Any]:

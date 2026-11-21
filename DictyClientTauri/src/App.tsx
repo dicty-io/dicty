@@ -223,6 +223,9 @@ export default function App() {
         const token = localStorage.getItem("dicty_jwt_token") || localStorage.getItem("auth_token");
         if (!token) return;
 
+        // Synchronize cached token to local backend engine
+        await engineApi.submitToken(token);
+
         const cloudRes = await engineApi.downloadSettingsFromCloud(token);
         if (isMounted && cloudRes) {
           if (cloudRes.vocabulary && Array.isArray(cloudRes.vocabulary)) {
