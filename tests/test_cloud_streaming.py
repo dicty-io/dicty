@@ -112,7 +112,8 @@ class DeepgramLiveStreamingTests(unittest.TestCase):
         from unittest.mock import patch
         loop = asyncio.new_event_loop()
         try:
-            with patch("cloud_streaming.dicty_cloud_token", return_value="fake_jwt_token"):
+            with patch("cloud_streaming.dicty_cloud_token", return_value="fake_jwt_token"), \
+                 patch("transcribe_service.get_stt_key", return_value=None):
                 sess = cs.create_session(
                     loop, "deepgram/nova-3", 16000,
                     route_provider="dicty_cloud", language="auto", vocab_words=[]
@@ -120,6 +121,7 @@ class DeepgramLiveStreamingTests(unittest.TestCase):
                 self.assertIsNotNone(sess)
                 self.assertIsInstance(sess, cs.DeepgramLiveSession)
                 self.assertEqual(sess.relay_token, "fake_jwt_token")
+                self.assertIsNotNone(sess.relay_base_url)
         finally:
             loop.close()
 

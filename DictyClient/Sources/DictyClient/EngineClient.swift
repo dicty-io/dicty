@@ -657,8 +657,10 @@ class EngineClient: ObservableObject {
                             defaults.set(expires, forKey: "cachedPlanExpiresAt")
                         }
                         
-                        // Keep local backend engine synchronized with the active token
-                        self.syncTokenToEngine(token: token)
+                        // Keep local backend engine synchronized with the active token (only if not logged out in flight)
+                        if let currentToken = SecretsManager.readSecret(forKey: "dicty_jwt_token"), currentToken == token {
+                            self.syncTokenToEngine(token: token)
+                        }
                         
                         // Auto-sync settings and vocabulary for logged in users
                         Task {
@@ -832,7 +834,14 @@ class EngineClient: ObservableObject {
     // MARK: - Engine Auth Token Synchronization
     
     nonisolated func syncTokenToEngine(token: String? = nil, retryCount: Int = 0) {
-        let activeToken = token ?? SecretsManager.readSecret(forKey: "dicty_jwt_token") ?? UserDefaults.standard.string(forKey: "dicty_jwt_token")
+        let activeToken = SecretsManager.readSecret(forKey: "dicty_jwt_token") ?? UserDefaults.standard.string(forKey: "dicty_jwt_token")
+        // If an explicit token was passed, ensure it is still the active credential
+        if let passedToken = token, !passedToken.isEmpty {
+            guard let active = activeToken, active == passedToken else {
+                print("[EngineClient] Stale token submission cancelled (token no longer active)")
+                return
+            }
+        }
         guard let jwt = activeToken, !jwt.isEmpty else { return }
         
         let localTokenUrl = EngineEndpoint.shared.url("/auth/token")
@@ -845,8 +854,14 @@ class EngineClient: ObservableObject {
         EngineEndpoint.shared.session.dataTask(with: tReq) { [weak self] _, response, error in
             if error != nil {
                 if retryCount < 10 {
-                    DispatchQueue.global().asyncAfter(deadline: .now() + Double(min(retryCount + 1, 5))) {
-                        self?.syncTokenToEngine(token: jwt, retryCount: retryCount + 1)
+                    DispatchQueue.global().asyncAfter(deadline: .now() + Double(min(retryCount + 1, 5))) { [weak self] in
+                        // Ensure session hasn't been logged out or replaced before retrying
+                        let current = SecretsManager.readSecret(forKey: "dicty_jwt_token") ?? UserDefaults.standard.string(forKey: "dicty_jwt_token")
+                        if let cur = current, cur == jwt {
+                            self?.syncTokenToEngine(token: jwt, retryCount: retryCount + 1)
+                        } else {
+                            print("[EngineClient] Cancelled engine token sync retry (account logged out or switched)")
+                        }
                     }
                 }
             } else if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {

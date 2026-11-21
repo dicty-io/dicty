@@ -28,7 +28,7 @@ async def test_nova3_live_streaming(audio_path: str = "bin/whisper.cpp/samples/j
     token = cloud_streaming.dicty_cloud_token()
     if not token:
         print("[!] No Dicty Cloud token found in session or defaults.")
-        print("[!] Please ensure you are logged in, or export DICTY_SESSION_TOKEN.")
+        print("[!] Please log in to Dicty Cloud in the Account tab of the Dicty app.")
         sys.exit(1)
 
     print(f"[*] Dicty Cloud token verified (prefix: {token[:16]}...)")
@@ -38,13 +38,25 @@ async def test_nova3_live_streaming(audio_path: str = "bin/whisper.cpp/samples/j
         sys.exit(1)
 
     with wave.open(audio_path, "rb") as wf:
+        channels = wf.getnchannels()
+        sampwidth = wf.getsampwidth()
         sr = wf.getframerate()
+        if sampwidth != 2:
+            print(f"[!] Unsupported sample width {sampwidth} (only 16-bit PCM supported)")
+            sys.exit(1)
         frames = wf.readframes(wf.getnframes())
-        audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+        raw_audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+        if channels == 1:
+            audio = raw_audio
+        elif channels == 2:
+            audio = raw_audio.reshape(-1, 2).mean(axis=1)
+        else:
+            print(f"[!] Unsupported channel count: {channels} (expected 1 or 2)")
+            sys.exit(1)
 
     duration_s = len(audio) / sr
     print(f"[*] Loaded sample audio: {audio_path}")
-    print(f"    Duration: {duration_s:.2f} seconds | Sample rate: {sr} Hz")
+    print(f"    Duration: {duration_s:.2f} seconds | Sample rate: {sr} Hz | Channels: {channels}")
 
     loop = asyncio.get_running_loop()
     print("[*] Creating Deepgram Nova-3 live streaming session...")
@@ -54,6 +66,10 @@ async def test_nova3_live_streaming(audio_path: str = "bin/whisper.cpp/samples/j
         route_provider="dicty_cloud", language="en", vocab_words=["country", "Americans"]
     )
     assert session is not None, "Failed to create streaming session"
+    if not getattr(session, "relay_base_url", None):
+        print(f"[!] Session {session.label} is not using Dicty Cloud relay. Expected relay session.")
+        sys.exit(1)
+
     session_init_ms = (time.perf_counter() - t_session_start) * 1000.0
     print(f"[+] Session created in {session_init_ms:.1f}ms: {session.label}")
 
@@ -85,8 +101,9 @@ async def test_nova3_live_streaming(audio_path: str = "bin/whisper.cpp/samples/j
         print("[!] ERROR: No transcription received from Nova-3.")
         return False
 
-    if finalize_latency_ms > 350.0:
-        print(f"[!] WARNING: Finalize latency exceeded target (<250ms): {finalize_latency_ms:.1f}ms")
+    if finalize_latency_ms > 250.0:
+        print(f"[!] FAILURE: Finalize latency exceeded target (<250ms): {finalize_latency_ms:.1f}ms")
+        return False
     else:
         print(f"[✓] SUCCESS: Ultra-low latency confirmed ({finalize_latency_ms:.1f}ms < 250ms target)!")
 
@@ -97,3 +114,4 @@ if __name__ == "__main__":
     audio_file = sys.argv[1] if len(sys.argv) > 1 else "bin/whisper.cpp/samples/jfk.wav"
     success = asyncio.run(test_nova3_live_streaming(audio_file))
     sys.exit(0 if success else 1)
+

@@ -182,18 +182,26 @@ async def submit_token(data: TokenSubmit):
             if response.status == 200:
                 body = json.loads(response.read().decode())
                 cloud_user = body.get("user")
+    except urllib.error.HTTPError as http_err:
+        if http_err.code in (401, 403):
+            logger.warning(f"Cloud explicitly rejected auth token (HTTP {http_err.code})")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token: authentication rejected by cloud")
+        logger.warning(f"Cloud /auth/me proxy HTTP error: {http_err}")
     except Exception as e:
         logger.warning(f"Cloud /auth/me proxy error: {e}")
 
     if not cloud_user and not decoded:
-        # Fallback for offline mode or network timeouts: inspect unexpired claims
-        try:
-            claims = jwt.get_unverified_claims(token)
-            exp = claims.get("exp")
-            if exp is not None and float(exp) > datetime.now(timezone.utc).timestamp():
-                decoded = claims
-        except Exception:
-            pass
+        # Offline fallback: only accept if this exact token was previously verified and stored by this engine
+        existing_token = SecureAuthManager.get_jwt_token()
+        if existing_token and existing_token == token:
+            existing_session = SecureAuthManager.get_session()
+            if existing_session.get("logged_in") and existing_session.get("email"):
+                decoded = {
+                    "email": existing_session["email"],
+                    "isPro": existing_session.get("is_pro", False),
+                    "computeBalance": existing_session.get("compute_balance", 0),
+                    "subscriptionTier": existing_session.get("subscription_tier", "free")
+                }
 
     if not cloud_user and not decoded:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token: signature verification failed")
