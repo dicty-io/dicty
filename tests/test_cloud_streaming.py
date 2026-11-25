@@ -125,6 +125,125 @@ class DeepgramLiveStreamingTests(unittest.TestCase):
         finally:
             loop.close()
 
+    def test_reconnects_on_mid_stream_drop_and_replays_unfinalized(self):
+        import json
+        from unittest.mock import patch
+
+        sent_per_conn = []
+
+        class FakeWS:
+            def __init__(self, conn_idx):
+                self.conn_idx = conn_idx
+                self.sent = []
+                sent_per_conn.append(self.sent)
+                self._incoming = asyncio.Queue()
+                self._closed = False
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                self._closed = True
+
+            async def send(self, data):
+                self.sent.append(data)
+                if self.conn_idx == 0 and isinstance(data, bytes) and len(self.sent) == 2:
+                    # First chunk was finalized; drop on second chunk
+                    raise ConnectionError("no close frame received or sent")
+                if isinstance(data, str):
+                    msg = json.loads(data)
+                    if msg.get("type") == "Finalize":
+                        await self._incoming.put(json.dumps({
+                            "type": "Results",
+                            "is_final": True,
+                            "from_finalize": True,
+                            "start": 0.0,
+                            "duration": 1.0,
+                            "channel": {"alternatives": [{"transcript": "world"}]},
+                        }))
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                if self.conn_idx == 0 and not hasattr(self, "_emitted_first"):
+                    self._emitted_first = True
+                    return json.dumps({
+                        "type": "Results",
+                        "is_final": True,
+                        "from_finalize": False,
+                        "start": 0.0,
+                        "duration": 1.0,
+                        "channel": {"alternatives": [{"transcript": "Hello"}]},
+                    })
+                item = await self._incoming.get()
+                if item is None:
+                    raise StopAsyncIteration
+                return item
+
+        conn_count = 0
+
+        def fake_connect(*args, **kwargs):
+            nonlocal conn_count
+            ws = FakeWS(conn_count)
+            conn_count += 1
+            return ws
+
+        async def main():
+            loop = asyncio.get_running_loop()
+            with patch("cloud_streaming._ws_connect", side_effect=fake_connect):
+                sess = cs.DeepgramLiveSession(
+                    loop, "nova-3", 16000,
+                    relay_base_url="https://example.workers.dev", relay_token="tok"
+                )
+                # 1.0s chunk (32000 bytes at 16kHz PCM16) -> finalized on conn 0
+                sess.feed(np.zeros(16000, dtype=np.float32))
+                await asyncio.sleep(0.05)
+                # 0.5s chunk -> triggers drop on conn 0, must be replayed on conn 1
+                sess.feed(np.ones(8000, dtype=np.float32) * 0.1)
+                await asyncio.sleep(0.15)
+                res = await sess.finalize(timeout=2.0)
+                return sess, res
+
+        sess, res = asyncio.run(main())
+        self.assertFalse(sess._failed)
+        self.assertEqual(conn_count, 2)
+        self.assertEqual(res, "Hello world")
+        # Conn 1 should replay only the 0.5s (16000 bytes) unfinalized chunk, not the 1.0s (32000 bytes) chunk
+        replayed_bytes = [x for x in sent_per_conn[1] if isinstance(x, bytes)]
+        self.assertEqual(len(replayed_bytes), 1)
+        self.assertEqual(len(replayed_bytes[0]), 16000)
+
+    def test_auth_failure_does_not_reconnect(self):
+        from unittest.mock import patch
+        calls = 0
+
+        class AuthFailWS:
+            async def __aenter__(self):
+                nonlocal calls
+                calls += 1
+                raise RuntimeError("HTTP 401 Unauthorized")
+
+            async def __aexit__(self, *args):
+                pass
+
+        async def main():
+            loop = asyncio.get_running_loop()
+            with patch("cloud_streaming._ws_connect", side_effect=lambda *a, **k: AuthFailWS()):
+                sess = cs.DeepgramLiveSession(
+                    loop, "nova-3", 16000,
+                    relay_base_url="https://example.workers.dev", relay_token="bad"
+                )
+                await asyncio.sleep(0.05)
+                res = await sess.finalize(timeout=1.0)
+                return sess, res
+
+        sess, res = asyncio.run(main())
+        self.assertEqual(calls, 1)
+        self.assertTrue(sess.auth_failed)
+        self.assertTrue(sess._failed)
+        self.assertIsNone(res)
+
 
 if __name__ == "__main__":
     unittest.main()
