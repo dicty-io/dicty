@@ -19,6 +19,7 @@ Threading: `feed()` is called from the recorder's audio worker thread and must n
 Network work runs on the engine's asyncio loop (passed in at creation).
 """
 import asyncio
+import collections
 import io
 import json
 import threading
@@ -100,6 +101,8 @@ class StreamSession:
 # 1. Deepgram live (true streaming)
 # ---------------------------------------------------------------------------
 class DeepgramLiveSession(StreamSession):
+    MAX_RECONNECTS = 3
+
     def __init__(self, loop: asyncio.AbstractEventLoop, model: str, sample_rate: int,
                  language: str = "auto", keyterms: Optional[List[str]] = None,
                  relay_base_url: Optional[str] = None, relay_token: Optional[str] = None):
@@ -115,6 +118,11 @@ class DeepgramLiveSession(StreamSession):
         self.label = f"Dicty Cloud live ({model})" if relay_base_url else f"Deepgram live ({model})"
         self._queue: "asyncio.Queue[Optional[bytes]]" = asyncio.Queue()
         self._finals: List[str] = []
+        self._unfinalized_chunks: "collections.deque[tuple[int, int, bytes]]" = collections.deque()
+        self._total_bytes_fed = 0
+        self._conn_base_bytes = 0
+        self._max_buffer_bytes = self.sample_rate * 2 * 15
+        self._got_from_finalize = False
         self._failed = False
         self.auth_failed = False
         self._finalized = asyncio.Event()
@@ -135,7 +143,7 @@ class DeepgramLiveSession(StreamSession):
         from urllib.parse import urlencode
         params = [("model", self.model), ("encoding", "linear16"), ("sample_rate", str(self.sample_rate)),
                   ("channels", "1"), ("smart_format", "true"), ("punctuate", "true"),
-                  ("interim_results", "false"), ("endpointing", "200")]
+                  ("interim_results", "false"), ("endpointing", "600")]
         if self.language and self.language != "auto":
             params.append(("language", self.language))
         elif self.model.startswith("nova-3"):
@@ -147,47 +155,88 @@ class DeepgramLiveSession(StreamSession):
             return f"{base}/v1/listen?{urlencode(params)}"
         return f"wss://{host}/v1/listen?{urlencode(params)}"
 
-    async def _run(self):
-        import websockets
-        try:
-            if self.relay_base_url:
-                host, headers = "", {"Authorization": f"Bearer {self.relay_token}"}
-            else:
-                host = await asyncio.to_thread(ts._deepgram_host)
-                headers = {"Authorization": f"Token {ts.get_stt_key('deepgram')}"}
-            async with _ws_connect(self._url(host), headers) as ws:
-                receiver = asyncio.create_task(self._receive(ws))
-                while True:
-                    try:
-                        item = await asyncio.wait_for(self._queue.get(), timeout=4.0)
-                    except asyncio.TimeoutError:
-                        # Paused / muted: keep the socket open (Deepgram closes after ~10s without data)
-                        await ws.send(json.dumps({"type": "KeepAlive"}))
-                        continue
-                    if item is None:
-                        break
-                    await ws.send(item)
-                await ws.send(json.dumps({"type": "Finalize"}))
-                try:
-                    await asyncio.wait_for(self._finalized.wait(), timeout=3.0)
-                finally:
-                    try:
-                        await ws.send(json.dumps({"type": "CloseStream"}))
-                    except Exception:
-                        pass
-                    receiver.cancel()
-        except Exception as e:
-            if not self._closed:
-                print(f"[!] Deepgram live stream failed: {e}")
-            status = getattr(getattr(e, 'response', None), 'status_code', None) or getattr(e, 'status_code', None)
-            if status in (401, 403) or "401" in str(e) or "Unauthorized" in str(e) or "INVALID_AUTH" in str(e):
-                self.auth_failed = True
-                hint = "Dicty Cloud token / login" if self.relay_base_url else "DEEPGRAM_API_KEY in Dicty Settings"
-                print(f"[!] [CLOUD AUTH ERROR] Authentication failed ({status or 401}). Please check your {hint}.")
-            self._failed = True
-            self._finalized.set()
+    def _buffer_chunk(self, data: bytes) -> None:
+        start_b = self._total_bytes_fed
+        end_b = start_b + len(data)
+        self._total_bytes_fed = end_b
+        self._unfinalized_chunks.append((start_b, end_b, data))
+        while self._unfinalized_chunks and (self._total_bytes_fed - self._unfinalized_chunks[0][0]) > self._max_buffer_bytes:
+            self._unfinalized_chunks.popleft()
 
-    async def _receive(self, ws):
+    def _evict_finalized_chunks(self, conn_elapsed_s: float) -> None:
+        if conn_elapsed_s <= 0:
+            return
+        global_fin_b = self._conn_base_bytes + int(conn_elapsed_s * self.sample_rate * 2)
+        while self._unfinalized_chunks and self._unfinalized_chunks[0][1] <= global_fin_b:
+            self._unfinalized_chunks.popleft()
+
+    async def _run(self):
+        attempt = 0
+        stop_requested = False
+        while not self._closed:
+            try:
+                if self.relay_base_url:
+                    host, headers = "", {"Authorization": f"Bearer {self.relay_token}"}
+                else:
+                    host = await asyncio.to_thread(ts._deepgram_host)
+                    headers = {"Authorization": f"Token {ts.get_stt_key('deepgram')}"}
+                async with _ws_connect(self._url(host), headers) as ws:
+                    self._got_from_finalize = False
+                    conn_finalized = asyncio.Event()
+                    self._conn_base_bytes = (
+                        self._unfinalized_chunks[0][0] if self._unfinalized_chunks else self._total_bytes_fed
+                    )
+                    for _, _, pcm in list(self._unfinalized_chunks):
+                        await ws.send(pcm)
+                    receiver = asyncio.create_task(self._receive(ws, conn_finalized))
+                    try:
+                        while not stop_requested:
+                            try:
+                                item = await asyncio.wait_for(self._queue.get(), timeout=4.0)
+                            except asyncio.TimeoutError:
+                                # Paused / muted: keep the socket open (Deepgram closes after ~10s without data)
+                                await ws.send(json.dumps({"type": "KeepAlive"}))
+                                continue
+                            if item is None:
+                                stop_requested = True
+                                break
+                            self._buffer_chunk(item)
+                            await ws.send(item)
+                        await ws.send(json.dumps({"type": "Finalize"}))
+                        await asyncio.wait_for(conn_finalized.wait(), timeout=3.0)
+                        if not self._got_from_finalize:
+                            raise ConnectionError("stream closed before finalize confirmation")
+                        try:
+                            await ws.send(json.dumps({"type": "CloseStream"}))
+                        except Exception:
+                            pass
+                        self._finalized.set()
+                        return
+                    finally:
+                        receiver.cancel()
+            except Exception as e:
+                if self._closed:
+                    self._finalized.set()
+                    return
+                status = getattr(getattr(e, 'response', None), 'status_code', None) or getattr(e, 'status_code', None)
+                if status in (401, 403) or "401" in str(e) or "Unauthorized" in str(e) or "INVALID_AUTH" in str(e):
+                    self.auth_failed = True
+                    hint = "Dicty Cloud token / login" if self.relay_base_url else "DEEPGRAM_API_KEY in Dicty Settings"
+                    print(f"[!] [CLOUD AUTH ERROR] Authentication failed ({status or 401}). Please check your {hint}.")
+                    self._failed = True
+                    self._finalized.set()
+                    return
+                if attempt < self.MAX_RECONNECTS:
+                    attempt += 1
+                    print(f"[!] Deepgram live stream dropped ({e}); reconnecting ({attempt}/{self.MAX_RECONNECTS})...")
+                    await asyncio.sleep(0.05 * attempt)
+                    continue
+                print(f"[!] Deepgram live stream failed: {e}")
+                self._failed = True
+                self._finalized.set()
+                return
+
+    async def _receive(self, ws, conn_finalized: asyncio.Event):
         try:
             async for raw in ws:
                 if isinstance(raw, bytes):
@@ -197,16 +246,19 @@ class DeepgramLiveSession(StreamSession):
                     continue
                 alt = (msg.get("channel", {}).get("alternatives") or [{}])[0]
                 text = (alt.get("transcript") or "").strip()
-                if msg.get("is_final") and text:
-                    self._finals.append(text)
+                if msg.get("is_final"):
+                    if text:
+                        self._finals.append(text)
+                    self._evict_finalized_chunks(float(msg.get("start") or 0.0) + float(msg.get("duration") or 0.0))
                 if msg.get("from_finalize"):
-                    self._finalized.set()
+                    self._got_from_finalize = True
+                    conn_finalized.set()
         except Exception:
             pass
         finally:
-            self._finalized.set()
+            conn_finalized.set()
 
-    async def finalize(self, timeout: float = 2.0) -> Optional[str]:
+    async def finalize(self, timeout: float = 2.5) -> Optional[str]:
         self._queue.put_nowait(None)
         try:
             await asyncio.wait_for(self._finalized.wait(), timeout=timeout)

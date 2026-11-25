@@ -1,7 +1,7 @@
 import _bootstrap  # noqa: F401
 import unittest
 
-from transcript_join import join_transcript_parts, normalize_whisper_text
+from transcript_join import clean_broken_periods, join_transcript_parts, normalize_whisper_text
 
 
 class TestJoinWhisperSegments(unittest.TestCase):
@@ -124,6 +124,73 @@ class TestWhisperLineWraps(unittest.TestCase):
         self.assertEqual(
             join_transcript_parts(["язы\nк", "в переводе"], separate_responses=True),
             "язык в переводе",
+        )
+
+
+class TestCleanBrokenPeriods(unittest.TestCase):
+    def test_user_reported_case(self):
+        text = "Because there is nothing for me to do further with this. Machine."
+        expected = "Because there is nothing for me to do further with this machine."
+        self.assertEqual(clean_broken_periods(text), expected)
+
+    def test_preposition_demonstrative_combinations(self):
+        self.assertEqual(
+            clean_broken_periods("We need to talk about that. Issue tomorrow."),
+            "We need to talk about that issue tomorrow.",
+        )
+        self.assertEqual(
+            clean_broken_periods("Look into these. Files first."),
+            "Look into these files first.",
+        )
+        self.assertEqual(
+            clean_broken_periods("Send it to this. Address."),
+            "Send it to this address.",
+        )
+
+    def test_strict_non_terminals(self):
+        self.assertEqual(
+            clean_broken_periods("He walked into the. Building."),
+            "He walked into the building.",
+        )
+        self.assertEqual(
+            clean_broken_periods("He came with. A friend."),
+            "He came with a friend.",
+        )
+        self.assertEqual(
+            clean_broken_periods("This is our. Best result."),
+            "This is our best result.",
+        )
+
+    def test_preserves_acronyms_and_pronoun_i(self):
+        self.assertEqual(
+            clean_broken_periods("Connect with this. VM."),
+            "Connect with this VM.",
+        )
+        self.assertEqual(
+            clean_broken_periods("He came with. I think his brother."),
+            "He came with I think his brother.",
+        )
+
+    def test_preserves_legitimate_sentence_boundaries(self):
+        # When "this" is a standalone pronoun without preposition
+        self.assertEqual(
+            clean_broken_periods("I chose this. But he chose that."),
+            "I chose this. But he chose that.",
+        )
+        # Normal sentences ending with nouns
+        self.assertEqual(
+            clean_broken_periods("The machine is ready. He can connect now."),
+            "The machine is ready. He can connect now.",
+        )
+
+    def test_russian_preposition_demonstrative(self):
+        self.assertEqual(
+            clean_broken_periods("Я говорил об этом. Вопросе."),
+            "Я говорил об этом вопросе.",
+        )
+        self.assertEqual(
+            clean_broken_periods("Мы справимся с этим. Заданием."),
+            "Мы справимся с этим заданием.",
         )
 
 
