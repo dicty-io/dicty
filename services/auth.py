@@ -97,6 +97,18 @@ def decode_access_token(token: str) -> Optional[dict]:
 _SESSION_LOCK = threading.Lock()
 
 
+def _is_token_expired(tok: str) -> bool:
+    """Return True iff the token carries an `exp` claim that is in the past."""
+    try:
+        claims = jwt.get_unverified_claims(tok)
+        exp = claims.get("exp")
+        if exp is not None:
+            return float(exp) <= datetime.now(timezone.utc).timestamp()
+    except Exception:
+        pass
+    return False
+
+
 class SecureAuthManager:
     @staticmethod
     def save_session(token: str, email: str, is_pro: bool, compute_balance: int = 0, subscription_tier: str = 'free'):
@@ -120,7 +132,13 @@ class SecureAuthManager:
                         meta = json.load(f)
                         tok = meta.get("token")
                         if tok and isinstance(tok, str) and tok.strip():
-                            return tok.strip()
+                            tok = tok.strip()
+                            if _is_token_expired(tok):
+                                logger.warning("Stored Dicty Cloud JWT token in auth_meta.json has expired; clearing token.")
+                                meta["token"] = ""
+                                _write_secure_meta(meta)
+                            else:
+                                return tok
                 except Exception as e:
                     logger.warning(f"Failed to read token from {META_FILE}: {e}")
 
@@ -141,7 +159,9 @@ class SecureAuthManager:
                                     meta = json.load(f)
                                     tok = meta.get("token")
                                     if tok and isinstance(tok, str) and tok.strip():
-                                        return tok.strip()
+                                        tok = tok.strip()
+                                        if not _is_token_expired(tok):
+                                            return tok
                             except Exception:
                                 pass
 

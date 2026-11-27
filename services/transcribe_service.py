@@ -373,10 +373,14 @@ def direct_provider_for_model(model_name: str) -> str:
 class TranscribeService:
     last_whisper_ms: float = 0.0
     last_provider: str = "Unknown"
+    last_model_id: str = ""
+    last_model_name: str = ""
 
     def __init__(self):
         self.last_whisper_ms = 0.0
         self.last_provider = "Unknown"
+        self.last_model_id = ""
+        self.last_model_name = ""
         self.openai_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENROUTER_API_KEY")
         self.whisper_cpp_path = os.getenv("WHISPER_CPP_PATH")
         self.whisper_model_path = os.getenv("WHISPER_MODEL_PATH")
@@ -946,8 +950,10 @@ class TranscribeService:
             result = model.transcribe(audio_data, **kwargs)
             self.last_whisper_ms = (time.perf_counter() - t_w0) * 1000.0
             self.last_provider = f"openai-whisper ({model_to_load})"
+            self.last_model_id = model_to_load
             TranscribeService.last_whisper_ms = self.last_whisper_ms
             TranscribeService.last_provider = self.last_provider
+            TranscribeService.last_model_id = model_to_load
             return result["text"]
         except ImportError:
             raise RuntimeError(
@@ -1178,8 +1184,10 @@ class TranscribeService:
                     response = await client.post(url, headers=headers, content=audio_bytes)
                     self.last_whisper_ms = (time.perf_counter() - t_c0) * 1000.0
                     self.last_provider = f"Deepgram ({deepgram_model}, your key)"
+                    self.last_model_id = model_name
                     TranscribeService.last_whisper_ms = self.last_whisper_ms
                     TranscribeService.last_provider = self.last_provider
+                    TranscribeService.last_model_id = model_name
                     if response.status_code != 200:
                         print(f"[-] Deepgram API Error ({response.status_code}): {response.text}")
                     response.raise_for_status()
@@ -1215,8 +1223,10 @@ class TranscribeService:
                         t_cloud_ms = (time.perf_counter() - t_c0) * 1000.0
                         self.last_whisper_ms = t_cloud_ms
                         self.last_provider = f"Cloud STT ({target_model})" + (f" [{fallback_note}]" if fallback_note else "")
+                        self.last_model_id = target_model
                         TranscribeService.last_whisper_ms = self.last_whisper_ms
                         TranscribeService.last_provider = self.last_provider
+                        TranscribeService.last_model_id = target_model
                         if response.status_code != 200:
                             print(f"[-] Cloud STT API Error ({response.status_code}): {response.text}")
                         response.raise_for_status()
@@ -1260,6 +1270,10 @@ class TranscribeService:
                     print(f"[*] Skipping English-only vocabulary prompt for language='{language}' to preserve language auto-detection.")
         
         raw_text = ""
+        self.last_model_id = ""
+        self.last_model_name = ""
+        TranscribeService.last_model_id = ""
+        TranscribeService.last_model_name = ""
         
         from model_manager import ModelManager
         mm = ModelManager()
@@ -1299,6 +1313,7 @@ class TranscribeService:
             else:
                 print(f"[!] Target model is Cloud ({active_model_id}) but no API key configured. Falling back to local speech engine...")
 
+        used_model_id = self.last_model_id or active_model_id
         if not cloud_success:
             # If the requested model was cloud-only, ensure local fallback uses an installed local model
             selected_local_model = None
@@ -1355,7 +1370,19 @@ class TranscribeService:
                 except Exception as python_err:
                     print(f"[-] Local python-whisper failed: {python_err}")
 
-            if not transcription_done:
+            if transcription_done:
+                if self.last_model_id and str(self.last_provider).startswith("openai-whisper"):
+                    used_model_id = self.last_model_id
+                elif selected_local_model:
+                    used_model_id = selected_local_model
+                elif is_cloud_model and self.whisper_model_path:
+                    fname = os.path.basename(self.whisper_model_path)
+                    matched = next(
+                        (m["id"] for m in models if not m.get("is_cloud") and m["id"] in fname),
+                        None,
+                    )
+                    used_model_id = matched or fname
+            else:
                 has_any_local = can_cpp or can_faster or can_python
                 if not has_any_local and not (active_model_dict and active_model_dict.get("is_cloud", False)):
                     print("[-] Local transcription failed: No local Whisper speech engine found (whisper-cli is not compiled at 'bin/whisper.cpp/build/bin/whisper-cli'). Run './scripts/compile_whisper.sh' to compile native whisper.cpp.")
@@ -1374,11 +1401,19 @@ class TranscribeService:
                         print(f"[*] Routing directly to Cloud STT transcription ({target_fallback_model}, Language: {language})...")
                         raw_text = await self.transcribe_remote(audio_path, target_fallback_model, prompt_str, language, override_key=openai_api_key, openrouter_key=openrouter_key, translate_to_english=translate_to_english, provider=provider)
                         transcription_done = True
+                        used_model_id = target_fallback_model
                     except Exception as remote_err:
                         print(f"[-] Remote transcription fallback failed: {remote_err}")
                 else:
                     if not has_any_local:
                         print("[-] Cannot perform Cloud STT fallback: No Cloud STT API key or Dicty Cloud connection configured.")
+
+        used_model_dict = next((m for m in models if m["id"] == used_model_id), None)
+        used_model_name = (used_model_dict or {}).get("name") or used_model_id
+        self.last_model_id = used_model_id
+        self.last_model_name = used_model_name
+        TranscribeService.last_model_id = used_model_id
+        TranscribeService.last_model_name = used_model_name
 
         if not raw_text:
             return ""

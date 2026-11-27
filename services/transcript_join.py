@@ -120,7 +120,7 @@ def _fix_dangling_sub(match: re.Match) -> str:
 
 def clean_broken_periods(text: str) -> str:
     """Fix periods incorrectly inserted after non-terminal prepositions, articles, or demonstratives."""
-    if not text:
+    if not text or "." not in text:
         return text
     text = _PREP_DEMO_RE.sub(_fix_dangling_sub, text)
     text = _RU_PREP_DEMO_RE.sub(_fix_dangling_sub, text)

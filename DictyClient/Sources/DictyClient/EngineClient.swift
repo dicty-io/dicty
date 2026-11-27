@@ -670,12 +670,15 @@ class EngineClient: ObservableObject {
                 }
             } else if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 401 {
                 // Token is explicitly invalid or expired
+                self.syncLogoutToEngine(expectedToken: token)
                 DispatchQueue.main.async {
                     SecretsManager.saveSecret("", forKey: "dicty_jwt_token")
                     self.isLoggedIn = false
                     self.userId = nil
                     self.userEmail = nil
                     self.isPro = false
+                    self.computeBalance = 0
+                    self.subscriptionTier = "free"
                     self.planExpiresAt = nil
                     self.offlineMode = false
                     if UserDefaults.standard.string(forKey: "llmProvider") == "dicty_cloud" {
@@ -705,6 +708,18 @@ class EngineClient: ObservableObject {
         }.resume()
     }
     
+    private nonisolated func syncLogoutToEngine(expectedToken: String? = nil) {
+        if let url = URL(string: "\(engineURL)/auth/logout") {
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            if let expectedToken, !expectedToken.isEmpty {
+                req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                req.httpBody = try? JSONSerialization.data(withJSONObject: ["expected_token": expectedToken])
+            }
+            EngineEndpoint.shared.session.dataTask(with: req).resume()
+        }
+    }
+
     func logoutAccount() {
         // Clear token from Keychain
         SecretsManager.saveSecret("", forKey: "dicty_jwt_token")
@@ -718,11 +733,7 @@ class EngineClient: ObservableObject {
         defaults.removeObject(forKey: "cachedPlanExpiresAt")
         
         // Notify local python backend of logout
-        if let url = URL(string: "\(engineURL)/auth/logout") {
-            var req = URLRequest(url: url)
-            req.httpMethod = "POST"
-            EngineEndpoint.shared.session.dataTask(with: req).resume()
-        }
+        self.syncLogoutToEngine()
         
         TelemetryClient.shared.track("user_logged_out")
         

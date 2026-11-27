@@ -214,6 +214,30 @@ class TestEngineAuth(unittest.TestCase):
         # Re-initialize for remaining tests
         engine_auth.init_token(self.valid_token)
 
+    def test_expired_jwt_in_meta_file_is_rejected_and_cleared(self):
+        """SecureAuthManager.get_jwt_token() must not return an expired JWT from auth_meta.json."""
+        import time
+        from jose import jwt
+        import auth
+
+        expired_tok = jwt.encode(
+            {"userId": 1, "email": "test@example.com", "exp": int(time.time()) - 60},
+            "secret",
+            algorithm="HS256",
+        )
+        auth.SecureAuthManager.save_session(expired_tok, "test@example.com", True)
+        with patch("subprocess.check_output", side_effect=FileNotFoundError):
+            self.assertIsNone(auth.SecureAuthManager.get_jwt_token())
+
+        valid_tok = jwt.encode(
+            {"userId": 1, "email": "test@example.com", "exp": int(time.time()) + 3600},
+            "secret",
+            algorithm="HS256",
+        )
+        auth.SecureAuthManager.save_session(valid_tok, "test@example.com", True)
+        self.assertEqual(auth.SecureAuthManager.get_jwt_token(), valid_tok)
+        auth.SecureAuthManager.clear_session()
+
 
 if __name__ == "__main__":
     unittest.main()

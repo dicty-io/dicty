@@ -96,6 +96,29 @@ class DictationMetricsTests(unittest.TestCase):
         self._rec()
         self.assertFalse(dm.set_latency("nope", 100, True, path=self.path))
 
+    def test_cloud_fallback_updates_last_model_id_and_name(self):
+        """When a cloud model fails and falls back to local whisper.cpp, last_model_id/name reflect the local model."""
+        import asyncio
+        import tempfile
+        from unittest.mock import patch
+        import transcribe_service as ts
+
+        svc = ts.TranscribeService()
+        svc.whisper_cpp_path = __file__  # exists() == True
+
+        with tempfile.NamedTemporaryFile(suffix=".bin") as fake_model, \
+             tempfile.NamedTemporaryFile(suffix=".wav") as fake_wav:
+            with patch("model_manager.ModelManager.get_active_model", return_value="deepgram/nova-3"), \
+                 patch("model_manager.ModelManager.get_model_file_path", side_effect=lambda mid: fake_model.name if mid == "small" else None), \
+                 patch.object(svc, "transcribe_remote", side_effect=RuntimeError("401 Unauthorized")), \
+                 patch.object(svc, "transcribe_faster_whisper", side_effect=RuntimeError("faster-whisper disabled in test")), \
+                 patch.object(svc, "transcribe_whisper_cpp", return_value="hello world"):
+                out = asyncio.run(svc.transcribe(fake_wav.name, provider="dicty_cloud"))
+        self.assertEqual(out, "hello world")
+        self.assertEqual(svc.last_model_id, "small")
+        self.assertEqual(ts.TranscribeService.last_model_id, "small")
+        self.assertNotIn("nova", svc.last_model_name.lower())
+
 
 if __name__ == "__main__":
     unittest.main()
