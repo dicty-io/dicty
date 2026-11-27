@@ -467,11 +467,12 @@ async def transcribe_local_file(
         print("[*] Transcription complete!")
         metrics_id = None
         try:
-            used_model = target_model or model_manager.get_active_model()
+            used_model = getattr(TranscribeService, "last_model_id", "") or target_model or model_manager.get_active_model()
             used_info = next((m for m in model_manager.get_available_models() if m["id"] == used_model), {}) or {}
+            used_name = getattr(TranscribeService, "last_model_name", "") or used_info.get("name") or used_model
             used_provider = getattr(TranscribeService, "last_provider", "unknown")
             metrics_id = dictation_metrics.record(
-                mode="file_transcription", model_id=used_model, model_name=used_info.get("name") or used_model,
+                mode="file_transcription", model_id=used_model, model_name=used_name,
                 provider=used_provider, is_cloud=_is_cloud_provider(used_provider),
                 audio_duration_s=duration, word_count=len((raw_text or "").split()),
                 engine_ms=(time.time() - start_time) * 1000.0, incognito=incognito_bool)

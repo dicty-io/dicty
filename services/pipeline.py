@@ -1333,6 +1333,17 @@ async def process_transcription(
     metrics_id = None
     try:
         provider_label = (pre_transcribed_provider or "VAD stream (local)") if pre_transcribed_text else getattr(TranscribeService, "last_provider", "unknown")
+        effective_model_id = active_model_id if pre_transcribed_text else (
+            getattr(transcriber, "last_model_id", "")
+            or getattr(TranscribeService, "last_model_id", "")
+            or active_model_id
+        )
+        effective_model_name = ((active_model_info or {}).get("name") or active_model_id) if pre_transcribed_text else (
+            getattr(transcriber, "last_model_name", "")
+            or getattr(TranscribeService, "last_model_name", "")
+            or (active_model_info or {}).get("name")
+            or effective_model_id
+        )
         transcription_whisper_ms = getattr(transcriber, "last_whisper_ms", None) or getattr(TranscribeService, "last_whisper_ms", 0.0) or 0.0
         reformat_model_label = ""
         if llm_ms > 0:
@@ -1343,8 +1354,8 @@ async def process_transcription(
 
         metrics_id = dictation_metrics.record(
             mode=mode,
-            model_id=active_model_id,
-            model_name=(active_model_info or {}).get("name") or active_model_id,
+            model_id=effective_model_id,
+            model_name=effective_model_name,
             provider=provider_label,
             is_cloud=_is_cloud_provider(provider_label),
             audio_duration_s=duration_seconds,
