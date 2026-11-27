@@ -249,8 +249,16 @@ async def submit_token(data: TokenSubmit):
         "plan_expires_at": plan_expires_at
     }
 
+class LogoutRequest(BaseModel):
+    expected_token: Optional[str] = None
+
+
 @router.post("/logout")
-async def logout():
+async def logout(body: Optional[LogoutRequest] = None):
+    if body and body.expected_token:
+        current = SecureAuthManager.get_jwt_token()
+        if current and current != body.expected_token.strip():
+            return {"message": "Skipped stale logout"}
     SecureAuthManager.clear_session()
     return {"message": "Logged out successfully"}
 

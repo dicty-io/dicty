@@ -349,6 +349,7 @@ async def process_transcription(
     summary_text = None
     full_note = None
     warnings = []
+    used_pre_transcribed = False
 
     if is_separated_meeting:
         set_status("Transcribing meeting audio tracks...")
@@ -452,6 +453,7 @@ async def process_transcription(
     elif pre_transcribed_text and not should_diarize and not is_meeting_mode and not (
         is_cloud_model and not (pre_transcribed_provider and any(p in str(pre_transcribed_provider) for p in ("Cloud", "Deepgram", "Segmented")))
     ):
+        used_pre_transcribed = True
         raw_text = pre_transcribed_text
         print(f"[*] Using pre-transcribed text from {pre_transcribed_provider or 'local VAD stream'} (instant).")
     else:
@@ -1332,13 +1334,13 @@ async def process_transcription(
     # Per-transcription performance metrics (numbers only, recorded for incognito too)
     metrics_id = None
     try:
-        provider_label = (pre_transcribed_provider or "VAD stream (local)") if pre_transcribed_text else getattr(TranscribeService, "last_provider", "unknown")
-        effective_model_id = active_model_id if pre_transcribed_text else (
+        provider_label = (pre_transcribed_provider or "VAD stream (local)") if used_pre_transcribed else getattr(TranscribeService, "last_provider", "unknown")
+        effective_model_id = active_model_id if used_pre_transcribed else (
             getattr(transcriber, "last_model_id", "")
             or getattr(TranscribeService, "last_model_id", "")
             or active_model_id
         )
-        effective_model_name = ((active_model_info or {}).get("name") or active_model_id) if pre_transcribed_text else (
+        effective_model_name = ((active_model_info or {}).get("name") or active_model_id) if used_pre_transcribed else (
             getattr(transcriber, "last_model_name", "")
             or getattr(TranscribeService, "last_model_name", "")
             or (active_model_info or {}).get("name")

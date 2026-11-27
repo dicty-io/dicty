@@ -670,7 +670,7 @@ class EngineClient: ObservableObject {
                 }
             } else if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 401 {
                 // Token is explicitly invalid or expired
-                self.syncLogoutToEngine()
+                self.syncLogoutToEngine(expectedToken: token)
                 DispatchQueue.main.async {
                     SecretsManager.saveSecret("", forKey: "dicty_jwt_token")
                     self.isLoggedIn = false
@@ -708,10 +708,14 @@ class EngineClient: ObservableObject {
         }.resume()
     }
     
-    private nonisolated func syncLogoutToEngine() {
+    private nonisolated func syncLogoutToEngine(expectedToken: String? = nil) {
         if let url = URL(string: "\(engineURL)/auth/logout") {
             var req = URLRequest(url: url)
             req.httpMethod = "POST"
+            if let expectedToken, !expectedToken.isEmpty {
+                req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                req.httpBody = try? JSONSerialization.data(withJSONObject: ["expected_token": expectedToken])
+            }
             EngineEndpoint.shared.session.dataTask(with: req).resume()
         }
     }

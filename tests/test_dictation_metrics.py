@@ -111,6 +111,7 @@ class DictationMetricsTests(unittest.TestCase):
             with patch("model_manager.ModelManager.get_active_model", return_value="deepgram/nova-3"), \
                  patch("model_manager.ModelManager.get_model_file_path", side_effect=lambda mid: fake_model.name if mid == "small" else None), \
                  patch.object(svc, "transcribe_remote", side_effect=RuntimeError("401 Unauthorized")), \
+                 patch.object(svc, "transcribe_faster_whisper", side_effect=RuntimeError("faster-whisper disabled in test")), \
                  patch.object(svc, "transcribe_whisper_cpp", return_value="hello world"):
                 out = asyncio.run(svc.transcribe(fake_wav.name, provider="dicty_cloud"))
         self.assertEqual(out, "hello world")

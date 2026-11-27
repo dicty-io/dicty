@@ -950,8 +950,10 @@ class TranscribeService:
             result = model.transcribe(audio_data, **kwargs)
             self.last_whisper_ms = (time.perf_counter() - t_w0) * 1000.0
             self.last_provider = f"openai-whisper ({model_to_load})"
+            self.last_model_id = model_to_load
             TranscribeService.last_whisper_ms = self.last_whisper_ms
             TranscribeService.last_provider = self.last_provider
+            TranscribeService.last_model_id = model_to_load
             return result["text"]
         except ImportError:
             raise RuntimeError(
@@ -1182,8 +1184,10 @@ class TranscribeService:
                     response = await client.post(url, headers=headers, content=audio_bytes)
                     self.last_whisper_ms = (time.perf_counter() - t_c0) * 1000.0
                     self.last_provider = f"Deepgram ({deepgram_model}, your key)"
+                    self.last_model_id = model_name
                     TranscribeService.last_whisper_ms = self.last_whisper_ms
                     TranscribeService.last_provider = self.last_provider
+                    TranscribeService.last_model_id = model_name
                     if response.status_code != 200:
                         print(f"[-] Deepgram API Error ({response.status_code}): {response.text}")
                     response.raise_for_status()
@@ -1219,8 +1223,10 @@ class TranscribeService:
                         t_cloud_ms = (time.perf_counter() - t_c0) * 1000.0
                         self.last_whisper_ms = t_cloud_ms
                         self.last_provider = f"Cloud STT ({target_model})" + (f" [{fallback_note}]" if fallback_note else "")
+                        self.last_model_id = target_model
                         TranscribeService.last_whisper_ms = self.last_whisper_ms
                         TranscribeService.last_provider = self.last_provider
+                        TranscribeService.last_model_id = target_model
                         if response.status_code != 200:
                             print(f"[-] Cloud STT API Error ({response.status_code}): {response.text}")
                         response.raise_for_status()
@@ -1307,7 +1313,7 @@ class TranscribeService:
             else:
                 print(f"[!] Target model is Cloud ({active_model_id}) but no API key configured. Falling back to local speech engine...")
 
-        used_model_id = active_model_id
+        used_model_id = self.last_model_id or active_model_id
         if not cloud_success:
             # If the requested model was cloud-only, ensure local fallback uses an installed local model
             selected_local_model = None
@@ -1365,7 +1371,9 @@ class TranscribeService:
                     print(f"[-] Local python-whisper failed: {python_err}")
 
             if transcription_done:
-                if selected_local_model:
+                if self.last_model_id and str(self.last_provider).startswith("openai-whisper"):
+                    used_model_id = self.last_model_id
+                elif selected_local_model:
                     used_model_id = selected_local_model
                 elif is_cloud_model and self.whisper_model_path:
                     fname = os.path.basename(self.whisper_model_path)
